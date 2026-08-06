@@ -36,7 +36,7 @@ See [architecture](docs/architecture.md) and the [verification record](docs/veri
 
 ## Requirements
 
-- Android Studio JBR or another Java 17 runtime
+- Android Studio JBR or another Java 21+ runtime (required by Robolectric for SDK 36 tests)
 - Android SDK 36
 - A phone with USB host support (tested on Pixel 10)
 - Rokid Glasses with a 480×640 display
