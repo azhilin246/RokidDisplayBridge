@@ -1,6 +1,6 @@
 [versions]
 agp = "9.2.1"
-core = "1.18.0"
+core = "1.19.0"
 junit = "4.13.2"
 robolectric = "4.16.1"
 androidx-test-core = "1.6.1"
