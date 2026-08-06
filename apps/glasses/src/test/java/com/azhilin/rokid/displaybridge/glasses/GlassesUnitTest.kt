@@ -79,9 +79,9 @@ class GlassesUnitTest {
     }
 
     @Test fun `bridge accessory identity is exact`() {
-        assertTrue(MainActivity.isBridgeIdentity("Azhilin", "Rokid Display Bridge", "1.0"))
-        assertFalse(MainActivity.isBridgeIdentity("Azhilin", "Other Accessory", "1.0"))
-        assertFalse(MainActivity.isBridgeIdentity("Azhilin", "Rokid Display Bridge", "0.1.6"))
+        assertTrue(MainActivity.isBridgeIdentity("Zhilin", "Rokid Display Bridge", "1.0"))
+        assertFalse(MainActivity.isBridgeIdentity("Zhilin", "Other Accessory", "1.0"))
+        assertFalse(MainActivity.isBridgeIdentity("Zhilin", "Rokid Display Bridge", "0.1.6"))
         assertFalse(MainActivity.isBridgeIdentity("Other", "Rokid Display Bridge", "1.0"))
     }
 
@@ -91,12 +91,10 @@ class GlassesUnitTest {
         assertEquals("Display Bridge", context.applicationInfo.loadLabel(context.packageManager).toString())
         @Suppress("DEPRECATION")
         val info = context.packageManager.getPackageInfo(context.packageName,
-            PackageManager.GET_ACTIVITIES or PackageManager.GET_PROVIDERS)
+            PackageManager.GET_ACTIVITIES)
         val activity = requireNotNull(info.activities).single()
         assertTrue(activity.name.endsWith("MainActivity"))
         assertTrue(activity.name.startsWith("com.azhilin.rokid.displaybridge.glasses"))
-        assertEquals("com.azhilin.rokid.displaybridge.glasses.files",
-            requireNotNull(info.providers).single { it.name == "androidx.core.content.FileProvider" }.authority)
         @Suppress("DEPRECATION")
         val permissions = context.packageManager.getPackageInfo(context.packageName,
             PackageManager.GET_PERMISSIONS).requestedPermissions.orEmpty()

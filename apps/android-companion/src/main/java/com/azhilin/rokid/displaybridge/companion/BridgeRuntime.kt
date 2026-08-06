@@ -52,11 +52,11 @@ fun isCurrentLivePacket(session: ULong, generation: UInt, currentSession: ULong,
     session != 0uL && session == currentSession && generation == currentGeneration
 
 object BridgeIdentity {
-    const val manufacturer = "Azhilin"
+    const val manufacturer = "Zhilin"
     const val model = "Rokid Display Bridge"
     const val description = "Universal external display and screen mirror bridge for Rokid Glasses"
     const val version = "1.0"
-    const val uri = "https://azhilin.com/rokid-display-bridge"
+    const val uri = "https://github.com/azhilin246/RokidDisplayBridge"
     const val serial = "rokid-display-bridge-v1"
     val strings = arrayOf(manufacturer, model, description, version, uri, serial)
     val summary = "$manufacturer / $model / $version / $serial"

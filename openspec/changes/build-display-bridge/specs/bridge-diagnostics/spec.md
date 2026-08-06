@@ -8,7 +8,7 @@ The companion UI SHALL separately show glasses connection, active AOA identity, 
 - **THEN** the UI SHALL update from service-owned state without rendering a live frame preview
 
 ### Requirement: Separate user actions
-The companion SHALL expose Connect/Disconnect, Start External Display, Start Screen Mirror, and Frame Placement as distinct actions and SHALL NOT expose a duplicate Stop action, content selection, player launch/settings, WiredPlayer Auto, Direct Play, or Optimize Live controls.
+The companion SHALL expose Connect/Disconnect, Start External Display, Start Screen Mirror, and Frame Placement as distinct actions and SHALL NOT expose a duplicate Stop action, content selection, player launch/settings, unrelated player-specific controls.
 
 #### Scenario: User changes modes
 - **WHEN** a main action is selected

@@ -27,7 +27,7 @@ Audio is deliberately outside the bridge. The application rendering to the exter
 
 ### Use standalone DBP1 and a generic AOA identity
 
-The wire magic is `DBP1`, with independent capability bits, sessions, source kinds, diagnostics, actions, and state. The phone publishes `Azhilin / Rokid Display Bridge / 1.0 / https://azhilin.com/rokid-display-bridge / rokid-display-bridge-v1`; the glasses filter matches that model and version only.
+The wire magic is `DBP1`, with independent capability bits, sessions, source kinds, diagnostics, actions, and state. The phone publishes `Zhilin / Rokid Display Bridge / 1.0 / https://github.com/azhilin246/RokidDisplayBridge / rokid-display-bridge-v1`; the glasses filter matches that model and version only.
 
 ### Use one video-only pipeline
 

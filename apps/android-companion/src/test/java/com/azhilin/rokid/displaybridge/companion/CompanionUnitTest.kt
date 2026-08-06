@@ -153,20 +153,19 @@ class CompanionUnitTest {
         assertEquals("Display Bridge", context.getString(R.string.app_name))
         @Suppress("DEPRECATION")
         val info = context.packageManager.getPackageInfo(context.packageName,
-            PackageManager.GET_SERVICES or PackageManager.GET_PROVIDERS)
+            PackageManager.GET_SERVICES)
         val service = requireNotNull(info.services).single { it.name.endsWith("BridgeService") }
         assertTrue(service.name.startsWith("com.azhilin.rokid.displaybridge.companion"))
         assertTrue(service.foregroundServiceType and ServiceInfo.FOREGROUND_SERVICE_TYPE_CONNECTED_DEVICE != 0)
         assertTrue(service.foregroundServiceType and ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PROJECTION != 0)
-        assertEquals("com.azhilin.rokid.displaybridge.companion.files",
-            requireNotNull(info.providers).single { it.name == "androidx.core.content.FileProvider" }.authority)
     }
 
     @Test fun `AOA identity is stable and application neutral`() {
+        assertEquals("Zhilin", BridgeIdentity.manufacturer)
         assertEquals("Rokid Display Bridge", BridgeIdentity.model)
         assertEquals("rokid-display-bridge-v1", BridgeIdentity.serial)
 
-        assertEquals("https://azhilin.com/rokid-display-bridge", BridgeIdentity.uri)
+        assertEquals("https://github.com/azhilin246/RokidDisplayBridge", BridgeIdentity.uri)
 
         assertEquals(6, BridgeIdentity.strings.size)
         assertTrue(BridgeIdentity.strings.none { it.contains("vlc", true) || it.contains("videolan", true) })

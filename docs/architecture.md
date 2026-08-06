@@ -6,11 +6,11 @@
 |---|---|---|
 | Package | `com.azhilin.rokid.displaybridge.companion` | `com.azhilin.rokid.displaybridge.glasses` |
 | Role | USB host, source VirtualDisplay, hardware AVC encoder | USB accessory, bounded DBP1 receiver, hardware AVC decoder |
-| FileProvider | `${applicationId}.files` | `${applicationId}.files` |
+| Exported provider | None | None |
 | Persisted state | Display layout, favorites, and gesture policy | No persisted session state |
 | Protocol | DBP1 with private session/generation state | DBP1 with private session/generation state |
 
-The companion publishes the unique AOA identity `Azhilin / Rokid Display Bridge / 1.0 / https://azhilin.com/rokid-display-bridge / rokid-display-bridge-v1`. The glasses filter matches only this manufacturer, model, and version.
+The companion publishes the unique AOA identity `Zhilin / Rokid Display Bridge / 1.0 / https://github.com/azhilin246/RokidDisplayBridge / rokid-display-bridge-v1`. The glasses filter matches only this manufacturer, model, and version.
 
 ## Runtime ownership
 

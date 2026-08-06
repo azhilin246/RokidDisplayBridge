@@ -22,11 +22,11 @@ The companion launcher icon SHALL show the Display Bridge video-to-glasses trans
 - **THEN** each APK SHALL expose its assigned legacy launcher artwork plus adaptive, round, and monochrome variants where supported, without sharing the old placeholder icon
 
 ### Requirement: Unique Android Open Accessory identity
-The companion SHALL publish manufacturer `Azhilin`, model `Rokid Display Bridge`, description `Universal external display and screen mirror bridge for Rokid Glasses`, version `1.0`, URI `https://azhilin.com/rokid-display-bridge`, and serial `rokid-display-bridge-v1`; the glasses filter SHALL match only this bridge identity.
+The companion SHALL publish manufacturer `Zhilin`, model `Rokid Display Bridge`, description `Universal external display and screen mirror bridge for Rokid Glasses`, version `1.0`, URI `https://github.com/azhilin246/RokidDisplayBridge`, and serial `rokid-display-bridge-v1`; the glasses filter SHALL match only this bridge identity.
 
 #### Scenario: Bridge accessory is attached
 - **WHEN** the phone enters AOA mode with the bridge identity
-- **THEN** Android SHALL target only the bridge glasses application and SHALL NOT launch the WiredPlayer glasses application or show an ambiguous chooser
+- **THEN** Android SHALL target only the bridge glasses application and SHALL NOT launch another accessory application or show an ambiguous chooser
 
 #### Scenario: Bridge accessory attaches without glasses ADB
 - **WHEN** Android recognizes the unique bridge accessory and glasses debugging is unavailable

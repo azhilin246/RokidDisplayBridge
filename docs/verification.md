@@ -1,6 +1,6 @@
 # Verification record
 
-Release candidate: `v0.2.1` stable MVP
+Release candidate: `v0.2.2` stable MVP
 Last updated: 2026-08-06 (Europe/Moscow)
 
 ## Automated release gate
@@ -27,8 +27,8 @@ Compiler output contains only known Android deprecation warnings for compatibili
 
 | Artifact | Package | Version | SHA-256 |
 |---|---|---|---|
-| `display-bridge-companion-v0.2.1-release.apk` | `com.azhilin.rokid.displaybridge.companion` | `0.2.1` (`3`) | `3B77785CC9B53DEAF4520927359DA9669521258D9353B8F7F12F802757C0782F` |
-| `display-bridge-glasses-v0.2.1-release.apk` | `com.azhilin.rokid.displaybridge.glasses` | `0.2.1` (`3`) | `F189CD2543BCFE512FF69F2DF8B71D0CC258D0F284C07505FAAFED2E31F18817` |
+| `display-bridge-companion-v0.2.2-release.apk` | `com.azhilin.rokid.displaybridge.companion` | `0.2.2` (`4`) | `BE44DE9152361C248EFDEA52BCFDD0353941F38A08393F04B63960A2F234D1A4` |
+| `display-bridge-glasses-v0.2.2-release.apk` | `com.azhilin.rokid.displaybridge.glasses` | `0.2.2` (`4`) | `A4D4B7904F27289A8C4DE529884A0A69EEE91FC76592C6E2B7FFD1F63A531C08` |
 
 Both APKs use APK Signature Scheme v2 and the same dedicated release certificate:
 
@@ -37,13 +37,17 @@ Both APKs use APK Signature Scheme v2 and the same dedicated release certificate
 
 The private key and credentials are kept outside Git. They are not included in repository history or GitHub release assets.
 
+The PKCS12 keystore and ignored signing-properties file are backed up in the master-password-protected Bitwarden Secure Note `Rokid Display Bridge Release Signing`. Both attachments and their metadata were verified through Bitwarden CLI, the vault was synchronized, and the temporary CLI session file was deleted.
+
+Packaged manifests were also checked to confirm that the unused `CHANGE_NETWORK_STATE` permission and FileProviders are absent. The glasses accessory filter contains manufacturer `Zhilin`, model `Rokid Display Bridge`, and version `1.0`; the companion advertises `https://github.com/azhilin246/RokidDisplayBridge` as its AOA URI.
+
 ## Device evidence
 
 Development and iterative testing used a Pixel 10 owner profile and RG_glasses with a physical 480×640 display. The user confirmed that the application-neutral External Display MVP renders real content on the glasses. Companion and glasses packages have also been installed and cold-started independently without a matching fatal `AndroidRuntime` failure.
 
 This evidence is intentionally summarized without publishing personal ADB serials, process IDs, local paths, or unrelated installed package names.
 
-The `v0.2.1` release certificate was verified automatically, but the release-signed APKs were not installed over the existing debug builds because Android requires a one-time uninstall when changing signing certificates.
+The `v0.2.2` release certificate was verified automatically, but the release-signed APKs were not installed over the existing debug builds because Android requires a one-time uninstall when changing signing certificates.
 
 ## Pending acceptance
 
@@ -53,7 +57,6 @@ The following remain explicit post-MVP gates rather than inferred successes:
 - full detach/reconnect and mode-switch matrix;
 - physical temple/ring verification for every configurable gesture;
 - visual confirmation of the latest frame-placement, favorite sorting, and preview refinements;
-- Screen Mirror lock/unlock behavior across platform versions;
-- secure off-machine backup of the release keystore and credentials.
+- Screen Mirror lock/unlock behavior across platform versions.
 
 OpenSpec task checkboxes remain the source of truth for incomplete hardware acceptance. A passing build does not mark those tasks complete.

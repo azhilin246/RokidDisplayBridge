@@ -2,7 +2,9 @@
 
 Display Bridge turns Rokid Glasses into a low-latency, video-only Android display over USB. It consists of a phone companion and a separate glasses receiver connected through Android Open Accessory (AOA) and the bounded DBP1 protocol.
 
-> **MVP status:** `v0.2.1` is the first stable, release-signed build. The core External Display and Screen Mirror paths work on the target Pixel/RG_glasses pair, while several long-run and physical-input acceptance checks remain documented as pending.
+> **Independent project:** Display Bridge is not affiliated with, endorsed by, or an official product of Rokid Corporation. Rokid and related product names are trademarks of their respective owners.
+
+> **MVP status:** `v0.2.2` is the stable, release-signed build. The core External Display and Screen Mirror paths work on the target Pixel/RG_glasses pair, while several long-run and physical-input acceptance checks remain documented as pending.
 
 ## Features
 
@@ -107,3 +109,19 @@ Generated release APKs:
 - `apps/glasses/build/outputs/apk/release/glasses-release.apk`
 
 Back up the keystore and its credentials securely. Losing them makes future in-place Android updates impossible. A release-signed APK cannot update an already installed debug-signed build; uninstall only the corresponding Display Bridge debug package once before switching channels.
+
+## Privacy
+
+Display Bridge has no Internet permission, analytics, telemetry, account, or cloud backend. Video is hardware-encoded on the phone and sent only to the connected glasses over USB/AOA. Audio is never captured or transported. Bridge settings and favorites stay in local application storage.
+
+Screen Mirror starts only after fresh Android system MediaProjection consent for that session. Protected or DRM content may appear black according to Android policy. Diagnostics can expose device and playback metadata on-screen or in local logs; sanitize logs before sharing them.
+
+## Security
+
+Report suspected vulnerabilities privately as described in [SECURITY.md](SECURITY.md). Never publish signing keys, passwords, USB serials, private media, or captured screen content in an issue.
+
+## License
+
+The source is available under the [PolyForm Noncommercial License 1.0.0](LICENSE). Noncommercial use, modification, distribution, and forks are permitted under its terms. Commercial use is reserved; contact the copyright holder for a separate commercial license.
+
+This is a source-available license, not an OSI-approved open-source license. See [NOTICE](NOTICE) and [CONTRIBUTING.md](CONTRIBUTING.md).

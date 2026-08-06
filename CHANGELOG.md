@@ -2,6 +2,18 @@
 
 All notable project changes are documented here.
 
+## [0.2.2] - 2026-08-06
+
+Repository-opening hardening release.
+
+### Changed
+
+- AOA manufacturer is now `Zhilin` and the accessory URI points to the canonical GitHub repository.
+- Removed unused network-state permission, both unused FileProviders, and their path resources.
+- Added source-available noncommercial licensing, privacy/security guidance, contribution policy, and dependency update automation.
+- Backed up the release keystore and signing properties in a master-password-protected Bitwarden Secure Note through CLI.
+- Anonymized legacy project references in OpenSpec and repaired duplicate task numbering without changing acceptance status.
+
 ## [0.2.1] - 2026-08-06
 
 First stable MVP release.

@@ -578,7 +578,7 @@ class MainActivity : Activity(), AccessoryTransport.Listener, LiveVideoDecoder.L
         private const val DISPLAY_WAKE_LOCK_MS = 10_000L
         private const val TAG = "RdbGlassesMain"
 
-        fun isBridgeIdentity(manufacturer: String?, model: String?, version: String?): Boolean = manufacturer == "Azhilin" &&
+        fun isBridgeIdentity(manufacturer: String?, model: String?, version: String?): Boolean = manufacturer == "Zhilin" &&
             model == "Rokid Display Bridge" && version == "1.0"
 
         internal fun overlayExitStopPayload(sessionId: ULong): LiveStopPayload {

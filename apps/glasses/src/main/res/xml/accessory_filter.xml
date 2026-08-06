@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <usb-accessory
-        manufacturer="Azhilin"
+        manufacturer="Zhilin"
         model="Rokid Display Bridge"
         version="1.0" />
 </resources>

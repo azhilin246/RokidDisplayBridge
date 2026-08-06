@@ -2,7 +2,7 @@
 
 - [x] 1.1 Scaffold independent Gradle modules for protocol, companion, and glasses with the two required application IDs
 - [x] 1.2 Replace product labels, icons, actions, channel/notification identifiers, preferences, authorities, tags, and diagnostics with application-neutral Display Bridge names
-- [x] 1.3 Implement and test generic bridge AOA identity plus matching glasses filter, distinct from WiredPlayer and the superseded player-specific identity
+- [x] 1.3 Implement and test generic bridge AOA identity plus matching glasses filter, distinct from other accessory applications and the superseded player-specific identity
 - [x] 1.4 Document the isolation audit and verify no files outside the standalone project changed
 
 ## 2. DBP1 video protocol
@@ -70,7 +70,7 @@
 - [x] 8.2 Pass both lintDebug and assembleDebug tasks, strict OpenSpec validation, and `git diff --check`
 - [x] 8.2a Re-run all automatic verification after playback controls and frame-placement changes
 - [ ] 8.3 Verify External Display to Screen Mirror and reverse switching without stale decoder resurrection
-- [ ] 8.4 Verify USB detach cleanup and reconnect with both WiredPlayer packages still installed
+- [ ] 8.4 Verify USB detach cleanup and reconnect with other accessory packages still installed
 - [ ] 8.5 Complete a sustained run with bounded queue depth and no terminal overflow, and record counters/results
 - [ ] 8.6 Record exact APK paths, package/version/identity evidence, device serials/builds, and all automatic/manual acceptance results
 - [ ] 8.7 Verify on real glasses that the display stays awake, physical glasses/ring input routes correctly, the overlay focus/actions work, and frame placement applies live
@@ -103,8 +103,8 @@
 - [ ] 10.15 Restore overlay Exit by dispatching the focused control directly, retaining physical button clicks through the same action path, and verify LIVE_STOP on-device
 - [x] 10.16 Replace centered-only X placement with horizontally movable but fully in-viewport geometry across protocol, editor, persistence, favorites, preview, and glasses
 - [ ] 10.17 Trigger a bounded full-display `ACQUIRE_CAUSES_WAKEUP` wake-lock on the first complete access unit, before decoder recovery, and verify both live modes on glasses
-- [x] 10.15 Replace both launcher icon sets with the approved display-to-glasses transfer mark: black/mint/green for the companion and green-only transparency for the glasses, including legacy, adaptive, round, and monochrome resources
-- [x] 10.16 Verify packaged launcher resources, protocol/unit/lint/assemble, strict OpenSpec validation, and `git diff --check`, then install both refreshed APKs on the exact Pixel and RG_glasses serials
+- [x] 10.18 Replace both launcher icon sets with the approved display-to-glasses transfer mark: black/mint/green for the companion and green-only transparency for the glasses, including legacy, adaptive, round, and monochrome resources
+- [x] 10.19 Verify packaged launcher resources, protocol/unit/lint/assemble, strict OpenSpec validation, and `git diff --check`, then install both refreshed APKs on the exact Pixel and RG_glasses serials
 
 ## 11. Configurable glasses gestures
 
