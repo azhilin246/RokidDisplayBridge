@@ -13,6 +13,7 @@ keystore.properties
 signing.properties
 *.jks
 *.keystore
+*.p12
 
 # IDE and editor state
 .idea/

@@ -40,8 +40,8 @@ jobs:
             :protocol:kotlin:testDebugUnitTest \
             :apps:android-companion:testDebugUnitTest \
             :apps:glasses:testDebugUnitTest \
-            :apps:android-companion:lintDebug \
-            :apps:glasses:lintDebug \
+            :apps:android-companion:lintRelease \
+            :apps:glasses:lintRelease \
             :apps:android-companion:assembleDebug \
             :apps:glasses:assembleDebug \
             --no-configuration-cache \

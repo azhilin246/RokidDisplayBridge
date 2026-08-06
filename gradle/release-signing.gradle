@@ -1,0 +1,50 @@
+def signingProperties = new Properties()
+def signingPropertiesFile = rootProject.file("keystore.properties")
+if (signingPropertiesFile.isFile()) {
+    signingPropertiesFile.withInputStream { signingProperties.load(it) }
+}
+
+def signingValue = { String propertyName, String environmentName ->
+    def propertyValue = signingProperties.getProperty(propertyName)?.trim()
+    propertyValue ?: System.getenv(environmentName)?.trim()
+}
+
+def releaseStoreFilePath = signingValue("storeFile", "DISPLAY_BRIDGE_KEYSTORE_FILE")
+def releaseStorePassword = signingValue("storePassword", "DISPLAY_BRIDGE_STORE_PASSWORD")
+def releaseKeyAlias = signingValue("keyAlias", "DISPLAY_BRIDGE_KEY_ALIAS")
+def releaseKeyPassword = signingValue("keyPassword", "DISPLAY_BRIDGE_KEY_PASSWORD")
+def releaseSigningConfigured = [
+    releaseStoreFilePath,
+    releaseStorePassword,
+    releaseKeyAlias,
+    releaseKeyPassword,
+].every { it }
+
+android {
+    signingConfigs {
+        if (releaseSigningConfigured) {
+            release {
+                storeFile rootProject.file(releaseStoreFilePath)
+                storePassword releaseStorePassword
+                keyAlias releaseKeyAlias
+                keyPassword releaseKeyPassword
+            }
+        }
+    }
+
+    buildTypes {
+        release {
+            signingConfig signingConfigs.findByName("release")
+        }
+    }
+}
+
+tasks.matching { it.name == "packageRelease" || it.name == "bundleRelease" }.configureEach {
+    doFirst {
+        if (!releaseSigningConfigured) {
+            throw new GradleException(
+                "Release signing is not configured. Provide ignored keystore.properties or DISPLAY_BRIDGE_* environment variables."
+            )
+        }
+    }
+}

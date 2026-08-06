@@ -2,7 +2,7 @@
 
 Display Bridge turns Rokid Glasses into a low-latency, video-only Android display over USB. It consists of a phone companion and a separate glasses receiver connected through Android Open Accessory (AOA) and the bounded DBP1 protocol.
 
-> **MVP status:** `v0.2.0` is the first published preview. The core External Display and Screen Mirror paths work on the target Pixel/RG_glasses pair, while several long-run and physical-input acceptance checks remain documented as pending.
+> **MVP status:** `v0.2.1` is the first stable, release-signed build. The core External Display and Screen Mirror paths work on the target Pixel/RG_glasses pair, while several long-run and physical-input acceptance checks remain documented as pending.
 
 ## Features
 
@@ -56,7 +56,7 @@ On Windows:
   --no-configuration-cache
 ```
 
-Generated APKs:
+Generated debug APKs:
 
 - `apps/android-companion/build/outputs/apk/debug/android-companion-debug.apk`
 - `apps/glasses/build/outputs/apk/debug/glasses-debug.apk`
@@ -68,8 +68,8 @@ Always select exact device serials. The phone APK should be scoped to the owner 
 ```powershell
 adb devices -l
 adb -s <phone-serial> shell pm list users
-adb -s <phone-serial> install --user 0 -r "apps/android-companion/build/outputs/apk/debug/android-companion-debug.apk"
-adb -s <glasses-serial> install -r "apps/glasses/build/outputs/apk/debug/glasses-debug.apk"
+adb -s <phone-serial> install --user 0 -r "apps/android-companion/build/outputs/apk/release/android-companion-release.apk"
+adb -s <glasses-serial> install -r "apps/glasses/build/outputs/apk/release/glasses-release.apk"
 ```
 
 ## Usage
@@ -84,4 +84,26 @@ Protected or DRM content may appear black during Screen Mirror. The bridge does 
 
 ## Release signing
 
-The MVP GitHub assets are debug-signed for direct testing. Production distribution requires a private release keystore and a separate signed release pipeline; no signing material is stored in this repository.
+Stable GitHub assets are signed with the dedicated Display Bridge release certificate. Its public certificate is committed as [`docs/display-bridge-release-certificate.pem`](docs/display-bridge-release-certificate.pem); the certificate SHA-256 is `2C:AA:FA:50:01:48:27:FB:3B:A8:4C:E7:A4:0A:F4:2B:F7:5B:33:22:D8:B6:9E:97:BE:B1:29:49:F2:E5:F5:EC`. Private signing material is never stored in Git.
+
+For a local signed build, create an ignored `keystore.properties` file:
+
+```properties
+storeFile=C:/absolute/path/to/DisplayBridge-release.p12
+storePassword=<secret>
+keyAlias=<alias>
+keyPassword=<secret>
+```
+
+Then build both release APKs:
+
+```powershell
+.\gradlew.bat :apps:android-companion:assembleRelease :apps:glasses:assembleRelease
+```
+
+Generated release APKs:
+
+- `apps/android-companion/build/outputs/apk/release/android-companion-release.apk`
+- `apps/glasses/build/outputs/apk/release/glasses-release.apk`
+
+Back up the keystore and its credentials securely. Losing them makes future in-place Android updates impossible. A release-signed APK cannot update an already installed debug-signed build; uninstall only the corresponding Display Bridge debug package once before switching channels.

@@ -2,6 +2,16 @@
 
 All notable project changes are documented here.
 
+## [0.2.1] - 2026-08-06
+
+First stable MVP release.
+
+### Changed
+
+- Both APKs are built with the dedicated Display Bridge release certificate.
+- Release signing material is kept outside Git and must be provided through ignored local properties or environment variables.
+- Release packaging now fails closed when signing credentials are unavailable instead of silently producing unsigned APKs.
+
 ## [0.2.0] - 2026-08-06
 
 First published MVP preview.
