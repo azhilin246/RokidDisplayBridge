@@ -1,0 +1,18 @@
+<resources>
+    <style name="AppTheme" parent="Theme.Material3.Dark.NoActionBar">
+        <item name="android:fontFamily">sans</item>
+        <item name="android:windowFullscreen">true</item>
+        <item name="android:windowActionModeOverlay">true</item>
+        <item name="colorPrimary">@color/glasses_primary</item>
+        <item name="colorOnPrimary">@color/glasses_on_primary</item>
+        <item name="colorPrimaryContainer">@color/glasses_primary_container</item>
+        <item name="colorOnPrimaryContainer">@color/glasses_on_primary_container</item>
+        <item name="colorSurface">@color/glasses_surface</item>
+        <item name="colorSurfaceContainer">@color/glasses_surface_container</item>
+        <item name="colorOnSurface">@color/glasses_on_surface</item>
+        <item name="colorOnSurfaceVariant">@color/glasses_on_surface_variant</item>
+        <item name="colorError">@color/glasses_error</item>
+        <item name="android:navigationBarColor">#000000</item>
+        <item name="android:statusBarColor">#000000</item>
+    </style>
+</resources>

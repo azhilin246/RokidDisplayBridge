@@ -1,0 +1,18 @@
+<resources>
+    <style name="AppTheme" parent="Theme.Material3.DayNight.NoActionBar">
+        <item name="colorPrimary">@color/rdb_primary</item>
+        <item name="colorOnPrimary">@color/rdb_on_primary</item>
+        <item name="colorPrimaryContainer">@color/rdb_primary_container</item>
+        <item name="colorOnPrimaryContainer">@color/rdb_on_primary_container</item>
+        <item name="colorSecondary">@color/rdb_secondary</item>
+        <item name="colorSurface">@color/rdb_surface</item>
+        <item name="colorSurfaceContainer">@color/rdb_surface_container</item>
+        <item name="colorOnSurface">@color/rdb_on_surface</item>
+        <item name="colorOnSurfaceVariant">@color/rdb_on_surface_variant</item>
+        <item name="colorError">@color/rdb_error</item>
+        <item name="colorOnErrorContainer">@color/rdb_on_error_container</item>
+        <item name="android:fontFamily">sans</item>
+        <item name="android:navigationBarColor">@color/rdb_surface</item>
+        <item name="android:statusBarColor">@color/rdb_surface</item>
+    </style>
+</resources>

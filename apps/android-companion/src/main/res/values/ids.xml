@@ -1,0 +1,24 @@
+<resources>
+    <item name="connection_card" type="id" />
+    <item name="connection_status" type="id" />
+    <item name="connection_action" type="id" />
+    <item name="header_title" type="id" />
+    <item name="mode_external" type="id" />
+    <item name="mode_mirror" type="id" />
+    <item name="metrics_card" type="id" />
+    <item name="error_card" type="id" />
+    <item name="frame_card" type="id" />
+    <item name="frame_placement_action" type="id" />
+    <item name="technical_card" type="id" />
+    <item name="technical_details" type="id" />
+    <item name="frame_stage" type="id" />
+    <item name="frame_editor" type="id" />
+    <item name="frame_preview_surface" type="id" />
+    <item name="preview_content_toggle" type="id" />
+    <item name="reset_frame_action" type="id" />
+    <item name="favorites_container" type="id" />
+    <item name="add_favorite_action" type="id" />
+    <item name="gesture_settings_card" type="id" />
+    <item name="gesture_settings_action" type="id" />
+    <item name="save_gesture_settings_action" type="id" />
+</resources>

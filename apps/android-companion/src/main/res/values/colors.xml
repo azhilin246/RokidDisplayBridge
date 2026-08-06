@@ -1,0 +1,15 @@
+<resources>
+    <color name="rdb_primary">#536BAF</color>
+    <color name="rdb_on_primary">#FFFFFF</color>
+    <color name="rdb_primary_container">#DCE1FF</color>
+    <color name="rdb_on_primary_container">#0A1B4B</color>
+    <color name="rdb_secondary">#006B5D</color>
+    <color name="rdb_surface">#FBF8FF</color>
+    <color name="rdb_surface_container">#F0EDF5</color>
+    <color name="rdb_on_surface">#1B1B20</color>
+    <color name="rdb_on_surface_variant">#45464F</color>
+    <color name="rdb_error">#BA1A1A</color>
+    <color name="rdb_error_container">#FFDAD6</color>
+    <color name="rdb_on_error_container">#410002</color>
+    <color name="launcher_background">#010101</color>
+</resources>

@@ -1,0 +1,12 @@
+<resources>
+    <color name="glasses_primary">#78F29A</color>
+    <color name="glasses_on_primary">#003917</color>
+    <color name="glasses_primary_container">#0D4F28</color>
+    <color name="glasses_on_primary_container">#A0F8B5</color>
+    <color name="glasses_surface">#000000</color>
+    <color name="glasses_surface_container">#000000</color>
+    <color name="glasses_on_surface">#E4F1E7</color>
+    <color name="glasses_on_surface_variant">#AFC2B3</color>
+    <color name="glasses_error">#FFB4AB</color>
+    <color name="launcher_background">#00000000</color>
+</resources>
