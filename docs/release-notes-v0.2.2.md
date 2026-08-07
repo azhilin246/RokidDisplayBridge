@@ -1,5 +1,7 @@
 # Display Bridge v0.2.2
 
+> Superseded by v0.2.3: removing `CHANGE_NETWORK_STATE` caused Android 16 to reject the pre-permission `connectedDevice` foreground-service startup.
+
 This release prepares the MVP repository for later public access while preserving the release-signing certificate introduced in v0.2.1.
 
 ## Changes

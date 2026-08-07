@@ -6,12 +6,14 @@ Goal: close the 20 remaining hardware/evidence-gated OpenSpec tasks without mixi
 
 1. Run `adb devices -l`, verify the exact phone owner profile and glasses serial, and record package versions before changes.
 2. If Android reports a signature mismatch, remove only the two Display Bridge debug packages after explicit approval; never remove unrelated accessory applications.
-3. Install both release-signed v0.2.2 APKs together because the AOA manufacturer changed to `Zhilin`.
+3. Install both release-signed v0.2.3 APKs together because the AOA manufacturer changed to `Zhilin` and 0.2.3 repairs Android 16 foreground-service startup.
 4. Verify package coexistence and that only the Display Bridge glasses app matches the new accessory identity.
 5. With glasses ADB unavailable, open the companion, attach USB, verify automatic permission/handshake/External Display startup, then detach and confirm idempotent cleanup plus HOME.
 6. Reconnect once and confirm no ambiguous chooser or duplicate concurrent permission request.
 
 Expected closures: `build-display-bridge` 4.11, 6.4, 8.4; `harden-low-latency-live-video` 4.3.
+
+Result (2026-08-07): complete. Both v0.2.3 APKs were installed on the exact devices; automatic accessory dispatch, the two distinct Android USB permission stages, detach-to-HOME, and clean reconnect were verified without removing or disabling unrelated packages.
 
 ## Session 2 — Core video modes and switching (45–60 minutes)
 

@@ -45,6 +45,8 @@ Success requires an independent capable application to select the display, non-e
 
 While the companion Activity is open, it arms USB discovery and begins the phone-host permission/AOA flow for an already attached device or the next device attachment. Permission requests are coalesced per enumerated `UsbDevice`. AOA changes the USB identity and normally creates a new Android `UsbDevice`, so the bridge requests permission for the re-enumerated AOA device only when Android has not carried permission forward; public APIs provide no safe permission bypass for that second identity. Diagnostics identify the normal-device and AOA-device stages separately.
 
+The companion declares the normal `CHANGE_NETWORK_STATE` permission even though it does not mutate network routing. Android 16 accepts it as the least invasive available prerequisite for starting a `connectedDevice` foreground service before the application has obtained USB device or accessory permission; removing it makes the service cold-start fail with `SecurityException`.
+
 After DBP1 `HELLO_ACK`, a pending automatic connection starts `EXTERNAL_DISPLAY` only if the mode is still `IDLE`. Explicit Screen Mirror consent and manual mode switching cancel the pending default and continue to use the existing serialized replacement path.
 
 The glasses manifest owns the unique `USB_ACCESSORY_ATTACHED` filter, allowing Android to launch the glasses Activity without ADB. Detach or EOF of the active accessory performs idempotent decoder/transport cleanup, finishes the glasses task, and launches the system HOME intent. Expected replacement of an in-process transport is not treated as physical cable detach.

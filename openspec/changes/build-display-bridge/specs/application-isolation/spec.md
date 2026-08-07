@@ -14,6 +14,13 @@ The bridge SHALL use the application label `Display Bridge` for both new APKs an
 - **WHEN** packaged manifests, resources, and constants are inspected
 - **THEN** every bridge authority, channel, action, preference, diagnostic, and protocol namespace SHALL be owned by the Display Bridge packages
 
+### Requirement: Connected-device foreground startup prerequisite
+The companion SHALL declare `FOREGROUND_SERVICE_CONNECTED_DEVICE` and the normal `CHANGE_NETWORK_STATE` prerequisite so its connected-device foreground service can start before Android has granted USB device or accessory permission. The bridge SHALL NOT use that prerequisite to mutate network routing.
+
+#### Scenario: Companion opens before USB permission
+- **WHEN** the companion starts on Android 16 without current USB device or accessory permission
+- **THEN** the bridge foreground service SHALL start without a permission `SecurityException` and remain ready to request USB permission
+
 ### Requirement: Device-appropriate coordinated launcher icons
 The companion launcher icon SHALL show the Display Bridge video-to-glasses transfer mark on a solid black background using pale mint-white outlines and green transfer pixels. The glasses launcher icon SHALL show the same mark using only green shades on a transparent background. The transfer pixels SHALL grow toward the video display and shrink toward the glasses, and both glasses lenses SHALL have equal visible width.
 

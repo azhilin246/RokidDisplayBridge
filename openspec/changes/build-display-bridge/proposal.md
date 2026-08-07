@@ -19,6 +19,7 @@ Rokid Glasses need a standalone, phone-owned bridge that exposes a standard Andr
 - Give the two launcher surfaces coordinated but device-appropriate Display Bridge artwork: the phone icon uses a solid black field with pale display/glasses outlines and a green display-to-glasses transfer trail, while the glasses icon uses the same mark in green shades on transparency.
 - Prefer whole-display MediaProjection consent on API 34+; when platform lock policy terminates projection, preserve the bridge connection and require fresh consent after unlock rather than attempting forbidden token reuse.
 - Keep all audio playback and Android audio routing on the phone; no audio codec, protocol message, capture, or glasses playback path is introduced.
+- Retain the normal Android connected-device foreground-service prerequisite needed to start the bridge before USB permission is available.
 
 ## Capabilities
 

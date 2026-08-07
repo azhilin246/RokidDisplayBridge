@@ -2,6 +2,15 @@
 
 All notable project changes are documented here.
 
+## [0.2.3] - 2026-08-07
+
+Android 16 foreground-service startup hotfix.
+
+### Fixed
+
+- Restored the normal `CHANGE_NETWORK_STATE` permission required by Android as a `connectedDevice` foreground-service prerequisite before USB permission is available.
+- Added manifest regression coverage so the companion cannot again ship with a cold-start crash caused by the missing prerequisite.
+
 ## [0.2.2] - 2026-08-06
 
 Repository-opening hardening release.
@@ -9,7 +18,7 @@ Repository-opening hardening release.
 ### Changed
 
 - AOA manufacturer is now `Zhilin` and the accessory URI points to the canonical GitHub repository.
-- Removed unused network-state permission, both unused FileProviders, and their path resources.
+- Removed both unused FileProviders and their path resources. The network-state permission removed in this release was restored in 0.2.3 after real Android 16 verification proved it is a foreground-service prerequisite.
 - Added source-available noncommercial licensing, privacy/security guidance, contribution policy, and dependency update automation.
 - Backed up the release keystore and signing properties in a master-password-protected Bitwarden Secure Note through CLI.
 - Anonymized legacy project references in OpenSpec and repaired duplicate task numbering without changing acceptance status.

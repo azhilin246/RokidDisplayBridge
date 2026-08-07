@@ -147,17 +147,18 @@ class CompanionUnitTest {
         assertEquals(bars.bottom, dashboard.root.paddingBottom)
     }
 
-    @Test fun `bridge package and foreground service declarations are independent`() {
+    @Test fun `bridge package and foreground service declarations include startup prerequisites`() {
         val context = ApplicationProvider.getApplicationContext<android.content.Context>()
         assertEquals("com.azhilin.rokid.displaybridge.companion", context.packageName)
         assertEquals("Display Bridge", context.getString(R.string.app_name))
         @Suppress("DEPRECATION")
         val info = context.packageManager.getPackageInfo(context.packageName,
-            PackageManager.GET_SERVICES)
+            PackageManager.GET_SERVICES or PackageManager.GET_PERMISSIONS)
         val service = requireNotNull(info.services).single { it.name.endsWith("BridgeService") }
         assertTrue(service.name.startsWith("com.azhilin.rokid.displaybridge.companion"))
         assertTrue(service.foregroundServiceType and ServiceInfo.FOREGROUND_SERVICE_TYPE_CONNECTED_DEVICE != 0)
         assertTrue(service.foregroundServiceType and ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PROJECTION != 0)
+        assertTrue(requireNotNull(info.requestedPermissions).contains("android.permission.CHANGE_NETWORK_STATE"))
     }
 
     @Test fun `AOA identity is stable and application neutral`() {

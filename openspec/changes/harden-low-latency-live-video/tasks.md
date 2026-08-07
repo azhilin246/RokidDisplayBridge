@@ -21,5 +21,5 @@
 
 - [x] 4.1 Pass protocol, companion, and glasses unit tests including new parser/pressure/recovery coverage
 - [x] 4.2 Pass both Android lint and assemble tasks, strict OpenSpec validation, and `git diff --check`
-- [ ] 4.3 Install updated APKs on exact Pixel user 0 and RG_glasses serials while preserving other available accessory packages
+- [x] 4.3 Install updated APKs on exact Pixel user 0 and RG_glasses serials while preserving other available accessory packages
 - [ ] 4.4 Prove External Display and Screen Mirror continuity, bounded depth, recovery, reduced delay, and sustained operation on real devices

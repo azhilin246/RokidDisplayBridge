@@ -4,7 +4,7 @@ Display Bridge turns Rokid Glasses into a low-latency, video-only Android displa
 
 > **Independent project:** Display Bridge is not affiliated with, endorsed by, or an official product of Rokid Corporation. Rokid and related product names are trademarks of their respective owners.
 
-> **MVP status:** `v0.2.2` is the stable, release-signed build. The core External Display and Screen Mirror paths work on the target Pixel/RG_glasses pair, while several long-run and physical-input acceptance checks remain documented as pending.
+> **MVP status:** `v0.2.3` is the current release-signed MVP and supersedes the Android 16 startup-broken `v0.2.2`. The core External Display and Screen Mirror paths work on the target Pixel/RG_glasses pair, while several long-run and physical-input acceptance checks remain documented as pending.
 
 ## Features
 

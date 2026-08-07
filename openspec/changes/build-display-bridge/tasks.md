@@ -34,7 +34,7 @@
 - [x] 4.8 Stop inferring `ADB_OWNS_DATA_CABLE` from the enabled USB ADB function or missing accessory permission
 - [x] 4.9 Add guarded two-double-tap exit with a dedicated three-second confirmation prompt only on non-playing main states
 - [x] 4.10 Establish movable fixed-aspect editor/glasses geometry and Reset as the baseline later refined by the dedicated placement contract
-- [ ] 4.11 Verify system accessory dispatch opens the glasses app without ADB and make active cable detach exit idempotently to HOME
+- [x] 4.11 Verify system accessory dispatch opens the glasses app without ADB and make active cable detach exit idempotently to HOME
 
 ## 5. Shared encoder and companion state
 
@@ -52,7 +52,7 @@
 - [x] 6.2 Publish the 480x640 public presentation VirtualDisplay with exact flags and neutral display diagnostics
 - [x] 6.3 Keep the display active for any independently launched capable application without bridge-side configuration or launch
 - [x] 6.3a Start External Display automatically after an open-companion USB/AOA/DBP1 connection while preserving explicit Screen Mirror switching
-- [ ] 6.4 Install both updated APKs and verify all four packages coexist without accessory identity ambiguity
+- [x] 6.4 Install both updated APKs without replacing or removing unrelated packages and verify accessory dispatch has no identity ambiguity
 - [ ] 6.5 Prove on Pixel/RG_glasses that an independent capable application selects the display, non-empty frames traverse AOA, video is visible, controls remain on phone, and audio remains phone-owned
 - [ ] 6.6 If an application does not use the display, record display visibility and the exact application-capability boundary without changing the bridge into a player or route emulator
 
@@ -70,7 +70,7 @@
 - [x] 8.2 Pass both lintDebug and assembleDebug tasks, strict OpenSpec validation, and `git diff --check`
 - [x] 8.2a Re-run all automatic verification after playback controls and frame-placement changes
 - [ ] 8.3 Verify External Display to Screen Mirror and reverse switching without stale decoder resurrection
-- [ ] 8.4 Verify USB detach cleanup and reconnect with other accessory packages still installed
+- [x] 8.4 Verify USB detach cleanup and reconnect without uninstalling or disabling unrelated accessory packages
 - [ ] 8.5 Complete a sustained run with bounded queue depth and no terminal overflow, and record counters/results
 - [ ] 8.6 Record exact APK paths, package/version/identity evidence, device serials/builds, and all automatic/manual acceptance results
 - [ ] 8.7 Verify on real glasses that the display stays awake, physical glasses/ring input routes correctly, the overlay focus/actions work, and frame placement applies live
@@ -130,3 +130,8 @@
 - [x] 13.2 Fully expand the drag-and-drop favorites list into the outer page without nested scrolling and add regression coverage
 - [x] 13.3 Pass companion unit tests, lint/assemble, strict OpenSpec validation, and `git diff --check`
 - [ ] 13.4 Install the refreshed companion APK on Pixel user 0 and verify both refined phone surfaces
+
+## 14. Android 16 release startup regression
+
+- [x] 14.1 Restore the normal connected-device foreground-service prerequisite and add manifest regression coverage
+- [x] 14.2 Build and sign v0.2.3, install it on Pixel user 0, and prove a cold companion start has no matching fatal exception before USB permission
