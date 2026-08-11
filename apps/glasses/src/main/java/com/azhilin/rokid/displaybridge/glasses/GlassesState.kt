@@ -6,6 +6,7 @@ enum class GlassesState {
     ADB_OWNS_DATA_CABLE,
     WAITING_FOR_BRIDGE,
     CONNECTING,
+    PAIRING,
     READY,
     WAITING_FOR_VIDEO,
     LOADING,
@@ -23,6 +24,7 @@ object GlassesStatePresentation {
             GlassesState.ADB_OWNS_DATA_CABLE -> GlassesStatus("ADB OWNS DATA CABLE", "Disable USB debugging for the AOA bridge session.", false)
             GlassesState.WAITING_FOR_BRIDGE -> GlassesStatus("WAITING FOR BRIDGE", "Open Display Bridge on the phone and tap Connect.", false)
             GlassesState.CONNECTING -> GlassesStatus("CONNECTING", "Negotiating the private DBP1 video session.", false)
+            GlassesState.PAIRING -> GlassesStatus("WIRELESS PAIRING", "Establishing first-use encrypted trust.", false)
             GlassesState.READY -> GlassesStatus("READY", "Choose External Display or Screen Mirror on the phone.", false)
             GlassesState.WAITING_FOR_VIDEO -> GlassesStatus(
                 "WAITING FOR VIDEO",

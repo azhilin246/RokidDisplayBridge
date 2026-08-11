@@ -11,7 +11,9 @@ import android.media.AudioManager
 import android.media.projection.MediaProjection
 import android.media.projection.MediaProjectionManager
 import android.os.Build
+import android.os.Handler
 import android.os.IBinder
+import android.os.Looper
 import android.os.PowerManager
 import android.os.SystemClock
 import android.view.KeyEvent
@@ -30,6 +32,8 @@ import com.azhilin.rokid.displaybridge.companion.GestureSettingsStore
 import com.azhilin.rokid.displaybridge.companion.MainActivity
 import com.azhilin.rokid.displaybridge.companion.BridgePreviewFrames
 import com.azhilin.rokid.displaybridge.companion.PreviewCodecConfig
+import com.azhilin.rokid.displaybridge.companion.PreferredOutputMode
+import com.azhilin.rokid.displaybridge.companion.PreferredOutputModeStore
 import com.azhilin.rokid.displaybridge.companion.ModeTransition
 import com.azhilin.rokid.displaybridge.companion.R
 import com.azhilin.rokid.displaybridge.companion.afterDecoderFeedback
@@ -48,7 +52,11 @@ import com.azhilin.rokid.displaybridge.companion.media.SurfaceToAvcStream
 import com.azhilin.rokid.displaybridge.companion.usb.AndroidAoaConnection
 import com.azhilin.rokid.displaybridge.companion.usb.AndroidAoaHost
 import com.azhilin.rokid.displaybridge.companion.usb.UsbPermissionStage
+import com.azhilin.rokid.displaybridge.companion.wireless.PhoneWirelessHost
+import com.azhilin.rokid.displaybridge.companion.wireless.WirelessStage
+import com.azhilin.rokid.displaybridge.protocol.AndroidPeerTrustStore
 import com.azhilin.rokid.displaybridge.protocol.DiagnosticPayload
+import com.azhilin.rokid.displaybridge.protocol.DbpTransport
 import com.azhilin.rokid.displaybridge.protocol.DisplayLayoutPayload
 import com.azhilin.rokid.displaybridge.protocol.ErrorCode
 import com.azhilin.rokid.displaybridge.protocol.ErrorPayload
@@ -70,14 +78,17 @@ import com.azhilin.rokid.displaybridge.protocol.MediaCommand
 import com.azhilin.rokid.displaybridge.protocol.QueuedFrame
 import com.azhilin.rokid.displaybridge.protocol.SampleFlags
 import com.azhilin.rokid.displaybridge.protocol.StopReason
+import com.azhilin.rokid.displaybridge.protocol.WirelessRecoveryPolicy
 import java.io.IOException
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicInteger
 import java.util.concurrent.atomic.AtomicLong
 
-class BridgeService : Service(), AndroidAoaHost.Listener {
+class BridgeService : Service(), AndroidAoaHost.Listener, PhoneWirelessHost.Listener {
     private lateinit var aoaHost: AndroidAoaHost
-    @Volatile private var connection: AndroidAoaConnection? = null
+    private lateinit var wirelessHost: PhoneWirelessHost
+    private lateinit var wirelessTrust: AndroidPeerTrustStore
+    @Volatile private var connection: DbpTransport? = null
     private val handshake = BridgeHandshake()
     private val queue = LiveFrameQueue()
     private val senderRunning = AtomicBoolean(false)
@@ -101,11 +112,23 @@ class BridgeService : Service(), AndroidAoaHost.Listener {
     private lateinit var displayLayoutStore: DisplayLayoutStore
     private lateinit var gestureSettingsStore: GestureSettingsStore
     private lateinit var favoritesStore: FramePlacementFavoritesStore
+    private lateinit var preferredOutputModeStore: PreferredOutputModeStore
     private val displayLayoutListener: (DisplayLayoutPayload) -> Unit = ::applyDisplayLayout
     private val automaticExternalDisplay = AutomaticExternalDisplayGate()
     @Volatile private var companionVisible = false
     private var adaptiveBitrate = AdaptiveVideoBitrate()
     @Volatile private var previewConfig: PreviewCodecConfig? = null
+    private val wirelessRecoveryHandler = Handler(Looper.getMainLooper())
+    @Volatile private var wirelessRecoveryActive = false
+    @Volatile private var wirelessRecoveryMode: BridgeMode? = null
+    private var wirelessRecoveryAttempt = 0
+    private val wirelessRecoveryRetry = Runnable {
+        if (!wirelessRecoveryActive || connection != null) return@Runnable
+        runCatching(wirelessHost::startConnect).onFailure { error ->
+            Log.w(TAG, "Wireless recovery start failed: ${error.message}")
+            scheduleWirelessRecovery("Could not restart Wi-Fi Direct: ${error.message}")
+        }
+    }
 
     private val transition = ModeTransition(object : ModeTransition.Cleanup {
         override fun stopProducer() { acceptingSamples = false }
@@ -142,10 +165,14 @@ class BridgeService : Service(), AndroidAoaHost.Listener {
         displayLayoutStore = DisplayLayoutStore(this)
         gestureSettingsStore = GestureSettingsStore(this)
         favoritesStore = FramePlacementFavoritesStore(this)
+        preferredOutputModeStore = PreferredOutputModeStore(this)
         val storedLayout = displayLayoutStore.load()
         BridgeRuntime.setDisplayLayoutListener(displayLayoutListener)
         BridgeRuntime.update { it.copy(audioRoute = describeAudioRoute(), displayLayout = storedLayout.summary("stored")) }
         aoaHost = AndroidAoaHost(this, this).also { it.frameListener = ::onFrame }
+        wirelessTrust = AndroidPeerTrustStore(this, "phone")
+        wirelessHost = PhoneWirelessHost(this, wirelessTrust, this)
+        BridgeRuntime.update { it.copy(wirelessPaired = wirelessTrust.load() != null) }
         BridgeRuntime.setCompanionVisibilityListener(::onCompanionVisibilityChanged)
         BridgePreviewFrames.setActivationListener { enabled ->
             mainExecutor.execute {
@@ -162,6 +189,7 @@ class BridgeService : Service(), AndroidAoaHost.Listener {
                 BridgeRuntime.update { it.copy(thermalStatus = thermalName(status)) }
                 if (status >= PowerManager.THERMAL_STATUS_CRITICAL && transition.mode != BridgeMode.IDLE) {
                     fail("Phone thermal state is critical; live video stopped")
+                    cancelWirelessRecovery()
                     transition.stop()
                 }
             }.also { powerManager.addThermalStatusListener(mainExecutor, it) }
@@ -174,15 +202,19 @@ class BridgeService : Service(), AndroidAoaHost.Listener {
             when (intent?.action) {
                 ACTION_COMPANION_VISIBILITY -> onCompanionVisibilityChanged(BridgeRuntime.isCompanionVisible())
                 ACTION_CONNECT -> {
-                    automaticExternalDisplay.onCompanionVisible(transition.mode)
+                    cancelWirelessRecovery()
+                    if (connection == null && transition.mode != BridgeMode.IDLE) transition.stop()
+                    updateAutomaticOutputPreference()
                     aoaHost.connect()
                 }
                 ACTION_DISCONNECT -> {
+                    cancelWirelessRecovery()
                     automaticExternalDisplay.cancel()
                     transition.stop()
                     connection = null
                     handshake.reset()
                     aoaHost.disconnect()
+                    wirelessHost.stop()
                     BridgeRuntime.update { it.copy(
                         connection = ConnectionState.DISCONNECTED,
                         connectionDetail = "Disconnected by user",
@@ -192,6 +224,28 @@ class BridgeService : Service(), AndroidAoaHost.Listener {
                     ) }
                 }
                 ACTION_CANCEL_AUTO_EXTERNAL -> automaticExternalDisplay.cancel()
+                ACTION_PREFERRED_OUTPUT_CHANGED -> updateAutomaticOutputPreference()
+                ACTION_PAIR_WIRELESS -> {
+                    prepareWirelessSelection()
+                    updateAutomaticOutputPreference()
+                    wirelessHost.startPairing()
+                }
+                ACTION_CONNECT_WIRELESS -> {
+                    prepareWirelessSelection()
+                    updateAutomaticOutputPreference()
+                    wirelessHost.startConnect()
+                }
+                ACTION_FORGET_WIRELESS -> {
+                    cancelWirelessRecovery()
+                    if (connection?.transportName?.startsWith("Wi-Fi") == true) prepareWirelessSelection()
+                    wirelessHost.stop()
+                    wirelessTrust.forget()
+                    BridgeRuntime.update { it.copy(
+                        wirelessPaired = false,
+                        wirelessStage = "forgotten",
+                        diagnostic = "Stored wireless peer trust deleted",
+                    ) }
+                }
                 ACTION_APPLY_GESTURE_SETTINGS -> sendGestureSettingsIfConnected()
                 ACTION_START_EXTERNAL_DISPLAY -> {
                     automaticExternalDisplay.cancel()
@@ -205,10 +259,12 @@ class BridgeService : Service(), AndroidAoaHost.Listener {
                     )
                 }
                 ACTION_STOP -> {
+                    cancelWirelessRecovery()
                     automaticExternalDisplay.cancel()
                     transition.stop()
                 }
                 ACTION_STOP_SERVICE -> {
+                    cancelWirelessRecovery()
                     automaticExternalDisplay.cancel()
                     transition.stop()
                     stopForeground(STOP_FOREGROUND_REMOVE)
@@ -223,6 +279,7 @@ class BridgeService : Service(), AndroidAoaHost.Listener {
 
     override fun onDestroy() {
         connection = null
+        cancelWirelessRecovery()
         BridgeRuntime.setDisplayLayoutListener(null)
         BridgeRuntime.setCompanionVisibilityListener(null)
         BridgePreviewFrames.setActivationListener(null)
@@ -234,6 +291,7 @@ class BridgeService : Service(), AndroidAoaHost.Listener {
         thermalListener = null
         senderRunning.set(false); queue.wake(); senderThread?.interrupt(); senderThread = null
         aoaHost.close()
+        wirelessHost.close()
         BridgeRuntime.update { it.copy(connection = ConnectionState.DISCONNECTED, handshake = "service stopped",
             connectionDetail = "Bridge service stopped") }
         super.onDestroy()
@@ -256,40 +314,75 @@ class BridgeService : Service(), AndroidAoaHost.Listener {
     }
 
     override fun onConnection(connection: AndroidAoaConnection) {
+        if (this.connection?.transportName?.startsWith("Wi-Fi") == true) {
+            connection.close()
+            BridgeRuntime.update { it.copy(diagnostic = "USB attached while wireless transport owns the session") }
+            return
+        }
+        attachConnection(connection, "Bridge AOA connected")
+    }
+
+    private fun attachConnection(connection: DbpTransport, detail: String) {
+        val previous = this.connection?.takeIf { it !== connection }
+        this.connection = null
+        previous?.close()
         this.connection = connection
         handshake.reset()
-        BridgeRuntime.update { it.copy(connection = ConnectionState.HANDSHAKING, connectionDetail = "Bridge AOA connected",
-            handshake = "DBP1 HELLO sent", error = null) }
+        BridgeRuntime.update { it.copy(
+            connection = ConnectionState.HANDSHAKING,
+            connectionDetail = detail,
+            transport = connection.transportName,
+            handshake = "DBP1 HELLO sent",
+            error = null,
+        ) }
         enqueueControl(Frame(MessageType.HELLO, requestId = 1u, payload = LivePayloads.encodeHello(HelloPayload())))
     }
 
     override fun onDisconnected(message: String) {
-        connection = null
-        handshake.reset()
-        transition.stop()
-        if (companionVisible) automaticExternalDisplay.onCompanionVisible(BridgeMode.IDLE)
-        else automaticExternalDisplay.cancel()
-        BridgeRuntime.update { it.copy(connection = ConnectionState.DISCONNECTED, connectionDetail = message,
-            handshake = "detached", diagnostic = "USB detach cleanup completed") }
+        val lost = connection ?: return
+        mainExecutor.execute {
+            if (connection !== lost) return@execute
+            connection = null
+            if (lost.transportName.startsWith("Wi-Fi") && wirelessTrust.load() != null) {
+                beginWirelessRecovery(message)
+            } else {
+                cancelWirelessRecovery()
+                handshake.reset()
+                transition.stop()
+                if (companionVisible) updateAutomaticOutputPreference()
+                else automaticExternalDisplay.cancel()
+                BridgeRuntime.update { it.copy(connection = ConnectionState.DISCONNECTED, connectionDetail = message,
+                    transport = "none", handshake = "detached", diagnostic = "Transport disconnect cleanup completed") }
+            }
+        }
     }
 
     override fun onError(message: String) {
-        if (message.contains("permission denied", ignoreCase = true)) automaticExternalDisplay.cancel()
-        fail(message)
+        mainExecutor.execute {
+            if (wirelessRecoveryActive || connection?.transportName?.startsWith("Wi-Fi") == true) {
+                Log.w(TAG, "Wireless link error before recovery: $message")
+                BridgeRuntime.update { it.copy(diagnostic = "Wireless link changed: $message") }
+            } else {
+                if (message.contains("permission denied", ignoreCase = true)) automaticExternalDisplay.cancel()
+                fail(message)
+            }
+        }
     }
 
-    private fun onFrame(frame: Frame) {
+    override fun onFrame(frame: Frame) {
         runCatching {
             when (frame.type) {
                 MessageType.HELLO_ACK -> {
                     val hello = LivePayloads.decodeHello(frame.payload)
                     val peerMaxPayload = handshake.accept(hello)
                     BridgeRuntime.update { it.copy(connection = ConnectionState.READY, connectionDetail = "Rokid glasses ready",
-                        handshake = "DBP1 ready, maxPayload=$peerMaxPayload", diagnostic = "Video-only bridge handshake complete", error = null) }
+                        handshake = "DBP1 ready, maxPayload=$peerMaxPayload", diagnostic = "Handshake complete", error = null) }
                     sendDisplayLayout(displayLayoutStore.load())
                     sendGestureSettingsIfConnected()
-                    if (automaticExternalDisplay.consumeReady(transition.mode)) {
-                        mainExecutor.execute {
+                    mainExecutor.execute {
+                        if (wirelessRecoveryActive) {
+                            resumeWirelessModeAfterHandshake()
+                        } else if (automaticExternalDisplay.consumeReady(transition.mode)) {
                             if (handshake.complete && transition.mode == BridgeMode.IDLE) {
                                 runCatching { startExternalDisplayMode() }
                                     .onFailure { fail("Automatic External Display: ${it.message}") }
@@ -342,6 +435,58 @@ class BridgeService : Service(), AndroidAoaHost.Listener {
         }.onFailure { fail("Protocol: ${it.message}") }
     }
 
+    override fun onWirelessState(state: WirelessStage, detail: String) {
+        mainExecutor.execute {
+            if (state == WirelessStage.ERROR && wirelessRecoveryActive) {
+                scheduleWirelessRecovery(detail)
+                return@execute
+            }
+            val connectionState = when (state) {
+                WirelessStage.ERROR -> ConnectionState.ERROR
+                WirelessStage.ACTIVE, WirelessStage.AUTHENTICATING, WirelessStage.PAIRING,
+                WirelessStage.TCP_CONNECTING, WirelessStage.GROUP_FORMING, WirelessStage.DISCOVERING -> ConnectionState.HANDSHAKING
+                WirelessStage.PERMISSION -> ConnectionState.USB_PERMISSION
+                WirelessStage.IDLE -> ConnectionState.DISCONNECTED
+            }
+            BridgeRuntime.update { it.copy(
+                connection = connectionState,
+                connectionDetail = detail,
+                transport = "Wi-Fi Direct/TCP",
+                wirelessStage = state.name.lowercase(),
+                wirelessPaired = wirelessTrust.load() != null,
+                error = if (state == WirelessStage.ERROR) detail else null,
+            ) }
+        }
+    }
+
+    override fun onWirelessConnection(connection: DbpTransport) {
+        mainExecutor.execute {
+            wirelessRecoveryHandler.removeCallbacks(wirelessRecoveryRetry)
+            BridgeRuntime.update { it.copy(wirelessPaired = wirelessTrust.load() != null) }
+            attachConnection(connection, "Authenticated wireless glasses connected")
+        }
+    }
+
+    private fun prepareWirelessSelection() {
+        cancelWirelessRecovery()
+        automaticExternalDisplay.cancel()
+        transition.stop()
+        val previous = connection
+        connection = null
+        handshake.reset()
+        previous?.close()
+        aoaHost.setAutoConnectEnabled(false)
+        aoaHost.disconnect()
+        wirelessHost.stop()
+        BridgeRuntime.update { it.copy(
+            connection = ConnectionState.DISCONNECTED,
+            connectionDetail = "Starting wireless connection",
+            transport = "Wi-Fi Direct/TCP",
+            handshake = "not started",
+            error = null,
+        ) }
+    }
+
     private fun startExternalDisplayMode() {
         check(handshake.complete) { "Connect the bridge to the glasses first" }
         transition.switchTo(BridgeMode.EXTERNAL_DISPLAY) {
@@ -353,12 +498,20 @@ class BridgeService : Service(), AndroidAoaHost.Listener {
         if (companionVisible == visible) return
         companionVisible = visible
         if (visible) {
-            automaticExternalDisplay.onCompanionVisible(transition.mode)
+            updateAutomaticOutputPreference()
             aoaHost.setAutoConnectEnabled(true)
             BridgeRuntime.update { it.copy(diagnostic = "Companion open: automatic USB connect and External Display armed") }
         } else {
             aoaHost.setAutoConnectEnabled(false)
             automaticExternalDisplay.onCompanionHidden(aoaHost.hasActiveConnectionAttempt)
+        }
+    }
+
+    private fun updateAutomaticOutputPreference() {
+        if (companionVisible && preferredOutputModeStore.load() == PreferredOutputMode.EXTERNAL_DISPLAY) {
+            automaticExternalDisplay.onCompanionVisible(transition.mode)
+        } else {
+            automaticExternalDisplay.cancel()
         }
     }
 
@@ -458,7 +611,7 @@ class BridgeService : Service(), AndroidAoaHost.Listener {
                     encoder?.requestKeyFrame()
                     adaptiveBitrate.onQueuePressure(SystemClock.elapsedRealtime())?.let(::applyBitrateAdjustment)
                     BridgeRuntime.update { it.copy(
-                        diagnostic = "USB video queue pressure; stale GOP dropped and keyframe requested",
+                        diagnostic = "DBP1 video queue pressure; stale GOP dropped and keyframe requested",
                     ) }
                     Log.w(TAG, "video queue pressure session=$activeSession generation=$sampleGeneration; requesting keyframe")
                 }
@@ -479,33 +632,42 @@ class BridgeService : Service(), AndroidAoaHost.Listener {
         val surface = stream.start()
         when (transition.mode) {
             BridgeMode.EXTERNAL_DISPLAY -> {
-                val display = PresentationDisplayController(this, surface)
-                presentation = display
+                val display = presentation?.also { it.replaceSurface(surface) }
+                    ?: PresentationDisplayController(this, surface).also { presentation = it }
                 BridgeRuntime.update { it.copy(display = display.info.diagnostic(), encoder = "${stream.codecName} running",
-                    diagnostic = "Public presentation display ready for compatible applications") }
+                    diagnostic = if (wirelessRecoveryActive) "External Display resumed after wireless recovery"
+                    else "Public presentation display ready for compatible applications") }
                 check(display.info.inPresentationCategory) { "VirtualDisplay is absent from presentation category" }
                 check(!PresentationDisplayController.hasForbiddenFlags(display.info.requestedFlags)) { "VirtualDisplay has forbidden flags" }
             }
             BridgeMode.SCREEN_MIRROR -> {
-                val projection = pendingProjection ?: error("MediaProjection instance was not retained")
-                pendingProjection = null
-                projectionController = ProjectionController(projection, surface) {
-                    mainExecutor.execute {
-                        if (transition.mode == BridgeMode.SCREEN_MIRROR) {
-                            transition.stop()
-                            BridgeRuntime.update { it.copy(
-                                diagnostic = "MediaProjection stopped by Android; fresh consent is required",
-                                error = "Screen Mirror stopped by Android. Unlock the phone if needed, then start Screen Mirror again.",
-                            ) }
+                val retainedProjection = projectionController
+                if (retainedProjection != null) {
+                    retainedProjection.replaceSurface(surface)
+                } else {
+                    val projection = pendingProjection ?: error("MediaProjection instance was not retained")
+                    pendingProjection = null
+                    projectionController = ProjectionController(projection, surface) {
+                        mainExecutor.execute {
+                            if (transition.mode == BridgeMode.SCREEN_MIRROR) {
+                                cancelWirelessRecovery()
+                                transition.stop()
+                                BridgeRuntime.update { it.copy(
+                                    diagnostic = "Screen Mirror permission ended",
+                                    error = "Screen Mirror stopped. Start it again.",
+                                ) }
+                            }
                         }
                     }
                 }
                 BridgeRuntime.update { it.copy(display = "MediaProjection 480x640", encoder = "${stream.codecName} running",
-                    diagnostic = "Screen Mirror active; protected/DRM content may be black") }
+                    diagnostic = if (wirelessRecoveryActive) "Screen Mirror resumed after wireless recovery"
+                    else "Screen Mirror active; protected/DRM content may be black") }
             }
             BridgeMode.IDLE -> error("mode ended before LIVE_READY")
         }
         acceptingSamples = true
+        if (wirelessRecoveryActive) finishWirelessRecovery()
     }
 
     private fun onFeedback(feedback: LiveFeedbackPayload) {
@@ -613,7 +775,7 @@ class BridgeService : Service(), AndroidAoaHost.Listener {
                             val bytes = pending.frames.sumOf { it.payload.size.toLong() }
                             val totalBytes = sentVideoBytes.addAndGet(bytes)
                             if (count <= 3L || count % 30L == 0L) {
-                                Log.i(TAG, "USB video sent units=$count payloadBytes=$totalBytes " +
+                                Log.i(TAG, "DBP1 video sent units=$count payloadBytes=$totalBytes " +
                                     "fragments=${pending.frames.size} key=${pending.keyFrame} queue=${stats.videoDepth} " +
                                     "dropped=${stats.droppedVideoFrames} waitingKey=${stats.waitingForKeyFrame}")
                             }
@@ -621,10 +783,106 @@ class BridgeService : Service(), AndroidAoaHost.Listener {
                     }
                     .onFailure { error ->
                         Log.w(TAG, "DBP1 sender failed: ${error.message}")
-                        BridgeRuntime.update { it.copy(error = "USB sender: ${error.message}") }
+                        BridgeRuntime.update { it.copy(error = "DBP1 sender: ${error.message}") }
                     }
             }
-        }, "rdb-usb-sender").apply { start() }
+        }, "rdb-dbp1-sender").apply { start() }
+    }
+
+    private fun beginWirelessRecovery(reason: String) {
+        if (!wirelessRecoveryActive) {
+            wirelessRecoveryActive = true
+            wirelessRecoveryMode = transition.mode.takeUnless { it == BridgeMode.IDLE }
+            wirelessRecoveryAttempt = 0
+            suspendActiveModeForWirelessRecovery()
+        }
+        handshake.reset()
+        wirelessHost.stop()
+        scheduleWirelessRecovery(reason)
+    }
+
+    private fun suspendActiveModeForWirelessRecovery() {
+        acceptingSamples = false
+        runCatching {
+            when (wirelessRecoveryMode) {
+                BridgeMode.EXTERNAL_DISPLAY -> presentation?.replaceSurface(null)
+                BridgeMode.SCREEN_MIRROR -> projectionController?.replaceSurface(null)
+                BridgeMode.IDLE, null -> Unit
+            }
+        }.onFailure { error ->
+            Log.e(TAG, "Could not retain active source during wireless recovery", error)
+            transition.stop()
+            wirelessRecoveryMode = null
+        }
+        previewConfig = null
+        BridgePreviewFrames.clear()
+        runCatching { encoder?.close() }
+        encoder = null
+        queue.clear()
+        sessionId = 0u
+        generation = 0u
+        nextAccessUnitId.set(1)
+        BridgeRuntime.update { it.copy(
+            encoder = if (wirelessRecoveryMode == null) "idle" else "paused for wireless recovery",
+            display = if (wirelessRecoveryMode == null) "none" else "source retained",
+            frameRate = 0,
+            bitrate = 0,
+            queueDepth = 0,
+        ) }
+    }
+
+    private fun scheduleWirelessRecovery(reason: String) {
+        if (!wirelessRecoveryActive || connection != null) return
+        wirelessRecoveryHandler.removeCallbacks(wirelessRecoveryRetry)
+        val attempt = wirelessRecoveryAttempt++
+        val delayMs = WirelessRecoveryPolicy.delayMs(attempt)
+        BridgeRuntime.update { it.copy(
+            connection = ConnectionState.HANDSHAKING,
+            connectionDetail = "$reason. Reconnecting automatically in ${delayMs / 1_000.0}s",
+            transport = "Wi-Fi Direct/TCP",
+            handshake = "recovering",
+            wirelessStage = "recovering",
+            error = null,
+            diagnostic = "Wireless recovery attempt ${attempt + 1} scheduled after ${delayMs}ms",
+        ) }
+        wirelessRecoveryHandler.postDelayed(wirelessRecoveryRetry, delayMs)
+    }
+
+    private fun resumeWirelessModeAfterHandshake() {
+        val mode = wirelessRecoveryMode
+        if (mode == null || mode == BridgeMode.IDLE) {
+            finishWirelessRecovery()
+            return
+        }
+        if (transition.mode != mode) {
+            cancelWirelessRecovery()
+            return
+        }
+        when (mode) {
+            BridgeMode.EXTERNAL_DISPLAY -> beginSession(LiveSourceKind.PRESENTATION_DISPLAY, "Android external display")
+            BridgeMode.SCREEN_MIRROR -> beginSession(LiveSourceKind.SCREEN_CAPTURE, "Android screen mirror")
+            BridgeMode.IDLE -> Unit
+        }
+    }
+
+    private fun finishWirelessRecovery() {
+        wirelessRecoveryHandler.removeCallbacks(wirelessRecoveryRetry)
+        wirelessRecoveryActive = false
+        wirelessRecoveryMode = null
+        wirelessRecoveryAttempt = 0
+        BridgeRuntime.update { it.copy(
+            connection = ConnectionState.READY,
+            connectionDetail = "Wireless bridge recovered automatically",
+            wirelessStage = "active",
+            error = null,
+        ) }
+    }
+
+    private fun cancelWirelessRecovery() {
+        wirelessRecoveryHandler.removeCallbacks(wirelessRecoveryRetry)
+        wirelessRecoveryActive = false
+        wirelessRecoveryMode = null
+        wirelessRecoveryAttempt = 0
     }
 
     private fun fail(message: String) {
@@ -646,7 +904,7 @@ class BridgeService : Service(), AndroidAoaHost.Listener {
     private fun notification() = NotificationCompat.Builder(this, CHANNEL_ID)
         .setSmallIcon(R.drawable.ic_bridge_launcher)
         .setContentTitle("Display Bridge")
-        .setContentText("Video-only USB bridge · audio stays on phone")
+        .setContentText("Display connection active")
         .setOngoing(true)
         .setContentIntent(PendingIntent.getActivity(this, 0, Intent(this, MainActivity::class.java),
             PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT))
@@ -687,6 +945,10 @@ class BridgeService : Service(), AndroidAoaHost.Listener {
         const val ACTION_DISCONNECT = "com.azhilin.rokid.displaybridge.companion.action.DISCONNECT"
         const val ACTION_COMPANION_VISIBILITY = "com.azhilin.rokid.displaybridge.companion.action.COMPANION_VISIBILITY"
         const val ACTION_CANCEL_AUTO_EXTERNAL = "com.azhilin.rokid.displaybridge.companion.action.CANCEL_AUTO_EXTERNAL"
+        const val ACTION_PREFERRED_OUTPUT_CHANGED = "com.azhilin.rokid.displaybridge.companion.action.PREFERRED_OUTPUT_CHANGED"
+        const val ACTION_PAIR_WIRELESS = "com.azhilin.rokid.displaybridge.companion.action.PAIR_WIRELESS"
+        const val ACTION_CONNECT_WIRELESS = "com.azhilin.rokid.displaybridge.companion.action.CONNECT_WIRELESS"
+        const val ACTION_FORGET_WIRELESS = "com.azhilin.rokid.displaybridge.companion.action.FORGET_WIRELESS"
         const val ACTION_APPLY_GESTURE_SETTINGS = "com.azhilin.rokid.displaybridge.companion.action.APPLY_GESTURE_SETTINGS"
         const val ACTION_START_EXTERNAL_DISPLAY = "com.azhilin.rokid.displaybridge.companion.action.START_EXTERNAL_DISPLAY"
         const val ACTION_START_SCREEN_MIRROR = "com.azhilin.rokid.displaybridge.companion.action.START_SCREEN_MIRROR"
@@ -707,7 +969,7 @@ class BridgeService : Service(), AndroidAoaHost.Listener {
             MediaCommand.PLAYLIST_PREVIOUS -> KeyEvent.KEYCODE_MEDIA_PREVIOUS
             MediaCommand.PLAYLIST_NEXT -> KeyEvent.KEYCODE_MEDIA_NEXT
             MediaCommand.FAVORITE_PREVIOUS, MediaCommand.FAVORITE_NEXT ->
-                error("Favorite commands are handled through frame placement")
+                error("Favorite commands are handled through Layout")
         }
 
         private fun routePriority(type: Int): Int = when (type) {

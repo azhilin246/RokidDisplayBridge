@@ -18,7 +18,7 @@ class FramePlacementStage(context: Context) : FrameLayout(context) {
         id = R.id.frame_preview_surface
         visibility = View.INVISIBLE
         isOpaque = true
-        contentDescription = "Low-rate content preview"
+        contentDescription = "Content preview"
     }
     val editor = DisplayLayoutEditorView(context).apply { id = R.id.frame_editor }
 

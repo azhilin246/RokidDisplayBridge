@@ -4,6 +4,7 @@ import android.content.pm.PackageManager
 import android.app.Activity
 import android.content.Intent
 import android.hardware.usb.UsbManager
+import android.net.wifi.p2p.WifiP2pManager
 import android.view.View
 import android.view.ViewGroup
 import android.widget.TextView
@@ -22,6 +23,7 @@ import com.azhilin.rokid.displaybridge.glasses.input.PlayerInputRouter
 import com.azhilin.rokid.displaybridge.glasses.input.SwipeActionGate
 import com.azhilin.rokid.displaybridge.glasses.ui.OverlayControl
 import com.azhilin.rokid.displaybridge.glasses.ui.PlaybackOverlayModel
+import com.azhilin.rokid.displaybridge.glasses.wireless.GlassesWirelessClient
 import com.azhilin.rokid.displaybridge.protocol.AccessUnitReassembler
 import com.azhilin.rokid.displaybridge.protocol.DisplayLayoutPayload
 import com.azhilin.rokid.displaybridge.protocol.LivePayloads
@@ -42,6 +44,29 @@ import org.robolectric.RobolectricTestRunner
 
 @RunWith(RobolectricTestRunner::class)
 class GlassesUnitTest {
+    @Test fun `wireless client retries only bounded P2P busy failures`() {
+        assertTrue(GlassesWirelessClient.shouldRetryBusy(WifiP2pManager.BUSY, 0))
+        assertTrue(GlassesWirelessClient.shouldRetryBusy(WifiP2pManager.BUSY, 5))
+        assertFalse(GlassesWirelessClient.shouldRetryBusy(WifiP2pManager.BUSY, 6))
+        assertFalse(GlassesWirelessClient.shouldRetryBusy(WifiP2pManager.ERROR, 0))
+    }
+
+    @Test fun `wireless client retries transient group join framework failures only within bounds`() {
+        assertTrue(GlassesWirelessClient.shouldRetryGroupJoin(WifiP2pManager.ERROR, 0))
+        assertTrue(GlassesWirelessClient.shouldRetryGroupJoin(WifiP2pManager.ERROR, 2))
+        assertFalse(GlassesWirelessClient.shouldRetryGroupJoin(WifiP2pManager.ERROR, 3))
+        assertTrue(GlassesWirelessClient.shouldRetryGroupJoin(WifiP2pManager.BUSY, 5))
+        assertFalse(GlassesWirelessClient.shouldRetryGroupJoin(WifiP2pManager.P2P_UNSUPPORTED, 0))
+    }
+
+    @Test fun `wireless client refreshes only while waiting for the paired phone`() {
+        assertTrue(GlassesWirelessClient.shouldRefreshDiscovery(true, false, false, false))
+        assertFalse(GlassesWirelessClient.shouldRefreshDiscovery(false, false, false, false))
+        assertFalse(GlassesWirelessClient.shouldRefreshDiscovery(true, true, false, false))
+        assertFalse(GlassesWirelessClient.shouldRefreshDiscovery(true, false, true, false))
+        assertFalse(GlassesWirelessClient.shouldRefreshDiscovery(true, false, false, true))
+    }
+
     @Test fun `glasses state surface is pure black with one state label and video overlay stays translucent`() {
         val activity = Robolectric.buildActivity(Activity::class.java).setup().get()
         val ui = GlassesUi(activity, {}, {})
@@ -60,7 +85,7 @@ class GlassesUnitTest {
     }
 
     @Test fun `all required states have readable presentation`() {
-        assertEquals(10, GlassesState.entries.size)
+        assertEquals(11, GlassesState.entries.size)
         GlassesState.entries.forEach { state ->
             val presentation = GlassesStatePresentation.forState(state)
             assertTrue(presentation.title.isNotBlank())
@@ -99,6 +124,12 @@ class GlassesUnitTest {
         val permissions = context.packageManager.getPackageInfo(context.packageName,
             PackageManager.GET_PERMISSIONS).requestedPermissions.orEmpty()
         assertTrue(android.Manifest.permission.WAKE_LOCK in permissions)
+        assertTrue(android.Manifest.permission.INTERNET in permissions)
+        assertTrue(android.Manifest.permission.ACCESS_WIFI_STATE in permissions)
+        assertTrue(android.Manifest.permission.CHANGE_WIFI_STATE in permissions)
+        assertTrue(android.Manifest.permission.ACCESS_COARSE_LOCATION in permissions)
+        assertTrue(android.Manifest.permission.ACCESS_FINE_LOCATION in permissions)
+        assertTrue("android.permission.NEARBY_WIFI_DEVICES" in permissions)
     }
 
     @Test fun `system accessory dispatch resolves glasses activity without ADB`() {
@@ -245,20 +276,27 @@ class GlassesUnitTest {
         assertTrue(stop.detail.contains("overlay Exit"))
     }
 
+    @Test fun `direct exit stops only an active session`() {
+        val stop = MainActivity.directExitStopPayload(72uL, "configured exit")
+        assertEquals(72uL, stop?.sessionId)
+        assertEquals(StopReason.USER, stop?.reason)
+        assertEquals(null, MainActivity.directExitStopPayload(0uL, "configured exit"))
+    }
+
     @Test fun `input matrix matches hidden and visible overlay gestures`() {
         assertEquals(PlayerInputAction.None, PlayerInputRouter.route(InputMode.MAIN, PlayerInput.SINGLE_TAP))
         assertEquals(PlayerInputAction.None, PlayerInputRouter.route(InputMode.MAIN, PlayerInput.PREVIOUS))
-        assertEquals(PlayerInputAction.ExitApplication(true),
+        assertEquals(PlayerInputAction.ExitApplication(false),
             PlayerInputRouter.route(InputMode.MAIN, PlayerInput.DOUBLE_TAP))
         assertEquals(PlayerInputAction.SendMediaCommand(MediaCommand.PLAY_PAUSE),
             PlayerInputRouter.route(InputMode.PLAYER_HIDDEN, PlayerInput.SINGLE_TAP))
-        assertEquals(PlayerInputAction.ShowOverlay, PlayerInputRouter.route(InputMode.PLAYER_HIDDEN, PlayerInput.DOUBLE_TAP))
+        assertEquals(PlayerInputAction.ExitApplication(false), PlayerInputRouter.route(InputMode.PLAYER_HIDDEN, PlayerInput.DOUBLE_TAP))
         assertEquals(PlayerInputAction.SendMediaCommand(MediaCommand.SEEK_BACKWARD),
             PlayerInputRouter.route(InputMode.PLAYER_HIDDEN, PlayerInput.PREVIOUS))
         assertEquals(PlayerInputAction.SendMediaCommand(MediaCommand.SEEK_FORWARD),
             PlayerInputRouter.route(InputMode.PLAYER_HIDDEN, PlayerInput.NEXT))
         assertEquals(PlayerInputAction.ActivateFocused, PlayerInputRouter.route(InputMode.OVERLAY_VISIBLE, PlayerInput.SINGLE_TAP))
-        assertEquals(PlayerInputAction.HideOverlay, PlayerInputRouter.route(InputMode.OVERLAY_VISIBLE, PlayerInput.DOUBLE_TAP))
+        assertEquals(PlayerInputAction.ExitApplication(false), PlayerInputRouter.route(InputMode.OVERLAY_VISIBLE, PlayerInput.DOUBLE_TAP))
         assertEquals(PlayerInputAction.MoveFocus(FocusMove.PREVIOUS),
             PlayerInputRouter.route(InputMode.OVERLAY_VISIBLE, PlayerInput.PREVIOUS))
         assertEquals(PlayerInputAction.MoveFocus(FocusMove.NEXT),
@@ -279,11 +317,11 @@ class GlassesUnitTest {
             PlayerInputRouter.route(InputMode.PLAYER_HIDDEN, PlayerInput.PREVIOUS, settings))
         assertEquals(PlayerInputAction.SendMediaCommand(MediaCommand.FAVORITE_PREVIOUS),
             PlayerInputRouter.route(InputMode.PLAYER_HIDDEN, PlayerInput.NEXT, settings))
-        assertEquals(PlayerInputAction.ExitToMain(false),
+        assertEquals(PlayerInputAction.ExitApplication(false),
             PlayerInputRouter.route(InputMode.PLAYER_HIDDEN, PlayerInput.DOUBLE_TAP, settings))
         assertEquals(PlayerInputAction.ActivateFocused,
             PlayerInputRouter.route(InputMode.OVERLAY_VISIBLE, PlayerInput.SINGLE_TAP, settings))
-        assertEquals(PlayerInputAction.HideOverlay,
+        assertEquals(PlayerInputAction.ExitApplication(false),
             PlayerInputRouter.route(InputMode.OVERLAY_VISIBLE, PlayerInput.DOUBLE_TAP, settings))
     }
 

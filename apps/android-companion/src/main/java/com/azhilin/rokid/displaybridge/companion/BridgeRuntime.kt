@@ -12,6 +12,9 @@ enum class ConnectionState { DISCONNECTED, USB_PERMISSION, SWITCHING_TO_AOA, HAN
 data class BridgeSnapshot(
     val connection: ConnectionState = ConnectionState.DISCONNECTED,
     val connectionDetail: String = "Waiting for Connect",
+    val transport: String = "none",
+    val wirelessStage: String = "idle",
+    val wirelessPaired: Boolean = false,
     val aoaIdentity: String = BridgeIdentity.summary,
     val handshake: String = "not started",
     val encoder: String = "idle",

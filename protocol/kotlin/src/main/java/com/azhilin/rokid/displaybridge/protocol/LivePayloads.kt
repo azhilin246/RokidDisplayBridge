@@ -78,9 +78,9 @@ enum class DoubleTapGestureAction(val code: UByte) {
 data class GestureSettingsPayload(
     val swipeAction: SwipeGestureAction = SwipeGestureAction.SEEK,
     val tapAction: TapGestureAction = TapGestureAction.PLAY_PAUSE,
-    val doubleTapAction: DoubleTapGestureAction = DoubleTapGestureAction.SHOW_OVERLAY,
+    val doubleTapAction: DoubleTapGestureAction = DoubleTapGestureAction.EXIT_APP,
     val reverseSwipeDirections: Boolean = false,
-    val confirmExitWithSecondDoubleTap: Boolean = true,
+    val confirmExitWithSecondDoubleTap: Boolean = false,
 )
 
 data class MediaKeyPayload(

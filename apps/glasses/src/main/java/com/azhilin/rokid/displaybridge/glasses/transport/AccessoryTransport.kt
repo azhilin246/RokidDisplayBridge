@@ -6,6 +6,7 @@ import android.util.Log
 import com.azhilin.rokid.displaybridge.protocol.Frame
 import com.azhilin.rokid.displaybridge.protocol.FrameCodec
 import com.azhilin.rokid.displaybridge.protocol.FrameStreamDecoder
+import com.azhilin.rokid.displaybridge.protocol.DbpTransport
 import java.io.Closeable
 import java.io.FileInputStream
 import java.io.FileOutputStream
@@ -16,13 +17,8 @@ import java.util.concurrent.atomic.AtomicBoolean
 class AccessoryTransport(
     val accessory: UsbAccessory,
     private val descriptor: ParcelFileDescriptor,
-    private val listener: Listener,
-) : Closeable {
-    interface Listener {
-        fun onFrame(frame: Frame)
-        fun onDisconnected(message: String)
-        fun onError(message: String)
-    }
+    private val listener: DbpTransport.Listener,
+) : DbpTransport {
 
     private val running = AtomicBoolean(false)
     private val closed = AtomicBoolean(false)
@@ -31,6 +27,8 @@ class AccessoryTransport(
     private val decoder = FrameStreamDecoder()
     private val writes = Executors.newSingleThreadExecutor { task -> Thread(task, "rdb-glasses-usb-writer") }
     private var reader: Thread? = null
+    override val isOpen: Boolean get() = running.get() && !closed.get()
+    override val transportName: String = "USB/AOA"
 
     fun start() {
         if (running.compareAndSet(false, true)) reader = Thread(::readLoop, "rdb-glasses-usb-reader").apply { start() }
@@ -38,14 +36,27 @@ class AccessoryTransport(
 
     fun matches(other: UsbAccessory) = accessory == other
 
-    fun send(frame: Frame) {
-        if (!running.get()) return
-        writes.execute {
-            if (!running.get()) return@execute
-            runCatching {
-                output.write(FrameCodec.encode(frame))
-                output.flush()
-            }.onFailure { disconnect(it.message ?: "DBP1 accessory write failed") }
+    override fun send(frame: Frame, completion: ((Boolean) -> Unit)?) {
+        if (!running.get()) {
+            completion?.invoke(false)
+            return
+        }
+        runCatching {
+            writes.execute {
+                if (!running.get()) {
+                    completion?.invoke(false)
+                    return@execute
+                }
+                val result = runCatching {
+                    output.write(FrameCodec.encode(frame))
+                    output.flush()
+                }
+                completion?.invoke(result.isSuccess)
+                result.exceptionOrNull()?.let { disconnect(it.message ?: "DBP1 accessory write failed") }
+            }
+        }.onFailure {
+            completion?.invoke(false)
+            disconnect(it.message ?: "DBP1 accessory write scheduling failed")
         }
     }
 

@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Verified RG_glasses normal-mode identity. Generic AOA PIDs are intentionally excluded. -->
+    <usb-device vendor-id="6353" product-id="20199" />
+</resources>

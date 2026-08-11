@@ -2,6 +2,26 @@
 
 All notable project changes are documented here.
 
+## [Unreleased] - 0.3.0
+
+### Added
+
+- Optional local-only Wi-Fi Direct/TCP transport for the existing bounded DBP1 video stream.
+- One-time authenticated wireless pairing without USB, accounts, cloud services, QR codes, or typed PINs.
+- Explicit trust-on-first-use pairing with no gesture/code entry; Android-Keystore-encrypted single-peer trust and mutual authenticated reconnect.
+- AES-256-GCM protection for every wireless DBP1 record with fresh per-connection directional keys.
+- Wireless permission, discovery, group, TCP, pairing, authentication, and recovery diagnostics.
+- Bounded recovery for transient Wi-Fi Direct `BUSY` responses, serialized P2P cleanup/setup, and OEM-compatible system broadcast delivery.
+
+### Changed
+
+- USB/AOA and wireless connections now implement one transport-neutral DBP1 boundary with explicit single-transport ownership.
+- Double tap remains reserved for immediate Display Bridge exit, including during wireless connection setup.
+- Both APKs declare Android's `INTERNET` permission only because Java TCP sockets require it; the bridge remains local-only and has no Internet service.
+- The companion combines Wired and Wireless controls in one Connection card; Layout, Gestures, and Technical details moved to the menu.
+- Layout favorites are inserted first, support scale during add/edit, and use apply/edit/delete icon actions.
+- The companion remembers the selected Output mode and applies it after either Wired or Wireless connects; Screen Mirror opens Android's capture-permission prompt when a new grant is required.
+
 ## [0.2.3] - 2026-08-07
 
 Android 16 foreground-service startup hotfix.

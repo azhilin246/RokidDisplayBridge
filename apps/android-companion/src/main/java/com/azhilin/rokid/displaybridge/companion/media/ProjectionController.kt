@@ -38,6 +38,11 @@ class ProjectionController(
         ) ?: error("MediaProjection returned no VirtualDisplay")
     }
 
+    fun replaceSurface(surface: Surface?) {
+        check(!closed.get()) { "MediaProjection display is closed" }
+        display.surface = surface
+    }
+
     override fun close() {
         if (!closed.compareAndSet(false, true)) return
         runCatching { display.release() }

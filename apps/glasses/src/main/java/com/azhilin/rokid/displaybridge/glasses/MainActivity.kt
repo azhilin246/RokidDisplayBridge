@@ -2,11 +2,13 @@ package com.azhilin.rokid.displaybridge.glasses
 
 import android.app.Activity
 import android.app.PendingIntent
+import android.Manifest
 import android.os.BatteryManager
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
+import android.content.pm.PackageManager
 import android.hardware.usb.UsbAccessory
 import android.hardware.usb.UsbManager
 import android.os.Bundle
@@ -26,9 +28,12 @@ import com.azhilin.rokid.displaybridge.glasses.input.PlayerInput
 import com.azhilin.rokid.displaybridge.glasses.input.PlayerInputAction
 import com.azhilin.rokid.displaybridge.glasses.input.PlayerInputRouter
 import com.azhilin.rokid.displaybridge.glasses.input.SwipeActionGate
+import com.azhilin.rokid.displaybridge.glasses.wireless.GlassesWirelessClient
+import com.azhilin.rokid.displaybridge.glasses.wireless.GlassesWirelessStage
 import com.azhilin.rokid.displaybridge.glasses.ui.OverlayControl
 import com.azhilin.rokid.displaybridge.glasses.ui.PlaybackOverlayModel
 import com.azhilin.rokid.displaybridge.protocol.DiagnosticPayload
+import com.azhilin.rokid.displaybridge.protocol.DbpTransport
 import com.azhilin.rokid.displaybridge.protocol.DisplayLayoutPayload
 import com.azhilin.rokid.displaybridge.protocol.ErrorCode
 import com.azhilin.rokid.displaybridge.protocol.ErrorPayload
@@ -42,15 +47,19 @@ import com.azhilin.rokid.displaybridge.protocol.MediaCommand
 import com.azhilin.rokid.displaybridge.protocol.MediaKeyPayload
 import com.azhilin.rokid.displaybridge.protocol.MessageType
 import com.azhilin.rokid.displaybridge.protocol.StopReason
+import com.azhilin.rokid.displaybridge.protocol.AndroidPeerTrustStore
+import com.azhilin.rokid.displaybridge.protocol.WirelessRecoveryPolicy
 import kotlin.math.abs
 
-class MainActivity : Activity(), AccessoryTransport.Listener, LiveVideoDecoder.Listener {
+class MainActivity : Activity(), DbpTransport.Listener, LiveVideoDecoder.Listener, GlassesWirelessClient.Listener {
     private lateinit var usbManager: UsbManager
     private lateinit var ui: GlassesUi
     private lateinit var decoder: LiveVideoDecoder
+    private lateinit var wireless: GlassesWirelessClient
+    private lateinit var wirelessTrust: AndroidPeerTrustStore
     private lateinit var displayWakeLock: PowerManager.WakeLock
     private lateinit var gestures: GestureDetector
-    @Volatile private var transport: AccessoryTransport? = null
+    @Volatile private var transport: DbpTransport? = null
     private val sessionGuard = IncomingSessionGuard()
     private val displayWakeGate = DisplayWakeGate()
     private val overlayModel = PlaybackOverlayModel()
@@ -68,9 +77,20 @@ class MainActivity : Activity(), AccessoryTransport.Listener, LiveVideoDecoder.L
     private var activeAccessoryKey: String? = null
     private var destroying = false
     private var exitingForCableDetach = false
+    private var exitingForUserAction = false
     private val hideOverlay = Runnable { hidePlaybackOverlay() }
     private val disarmExit = Runnable { resetExitConfirmation() }
     private val endWakePulse = Runnable { ui.endWakePulse(currentState == GlassesState.PLAYING) }
+    private val finishUserExit = Runnable { completeUserExit() }
+    private var wirelessRecoveryActive = false
+    private var wirelessRecoveryAttempt = 0
+    private val wirelessRecoveryRetry = Runnable {
+        if (!wirelessRecoveryActive || transport != null || destroying) return@Runnable
+        runCatching(wireless::startConnect).onFailure { error ->
+            Log.w(TAG, "Wireless recovery start failed: ${error.message}")
+            scheduleWirelessRecovery("Could not restart Wi-Fi Direct: ${error.message}")
+        }
+    }
 
     private val receiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context?, intent: Intent?) {
@@ -89,13 +109,13 @@ class MainActivity : Activity(), AccessoryTransport.Listener, LiveVideoDecoder.L
                 UsbManager.ACTION_USB_ACCESSORY_DETACHED -> {
                     @Suppress("DEPRECATION")
                     val detached = intent.getParcelableExtra(UsbManager.EXTRA_ACCESSORY) as? UsbAccessory
-                    if (detached == null || transport?.matches(detached) == true ||
+                    if (detached == null || (transport as? AccessoryTransport)?.matches(detached) == true ||
                         activeAccessoryKey == accessoryKey(detached)
                     ) exitToHomeAfterCableDetach("USB accessory detached")
                 }
                 Intent.ACTION_BATTERY_CHANGED, ACTION_USB_STATE -> {
                     updateConnectionSignals(intent)
-                    if (transport == null) render(currentIdleState())
+                    if (transport == null && !wireless.isRunning()) renderWirelessIdle()
                 }
             }
         }
@@ -114,6 +134,8 @@ class MainActivity : Activity(), AccessoryTransport.Listener, LiveVideoDecoder.L
         ).apply { setReferenceCounted(false) }
         gestures = GestureDetector(this, PlayerGestures())
         decoder = LiveVideoDecoder(ui.textureView, this)
+        wirelessTrust = AndroidPeerTrustStore(this, "glasses")
+        wireless = GlassesWirelessClient(this, wirelessTrust, this)
         usbManager = getSystemService(UsbManager::class.java)
         updateConnectionSignals(registerReceiver(null, IntentFilter(Intent.ACTION_BATTERY_CHANGED)))
         updateConnectionSignals(registerReceiver(null, IntentFilter(ACTION_USB_STATE)))
@@ -128,15 +150,18 @@ class MainActivity : Activity(), AccessoryTransport.Listener, LiveVideoDecoder.L
 
     override fun onDestroy() {
         destroying = true
+        cancelWirelessRecovery()
         resetExitConfirmation()
         mainHandler.removeCallbacks(hideOverlay)
         mainHandler.removeCallbacks(endWakePulse)
+        mainHandler.removeCallbacks(finishUserExit)
         ui.endWakePulse(false)
         if (::displayWakeLock.isInitialized && displayWakeLock.isHeld) displayWakeLock.release()
         ui.root.keepScreenOn = false
         val currentTransport = transport
         transport = null
         currentTransport?.close()
+        wireless.close()
         activeAccessoryKey = null
         accessoryPermissionGate.reset()
         decoder.close()
@@ -173,7 +198,13 @@ class MainActivity : Activity(), AccessoryTransport.Listener, LiveVideoDecoder.L
         val attached = intent?.getParcelableExtra(UsbManager.EXTRA_ACCESSORY) as? UsbAccessory
         val accessory = attached ?: usbManager.accessoryList?.firstOrNull()
         if (accessory == null) {
-            render(currentIdleState())
+            if (wireless.hasPairedPhone() && GlassesWirelessClient.hasRequiredPermission(this)) {
+                runCatching(wireless::startConnect).onFailure { render(GlassesState.ERROR, it.message) }
+            } else renderWirelessIdle()
+            return
+        }
+        if (transport?.transportName?.startsWith("Wi-Fi") == true) {
+            render(currentState, "USB attached; active wireless session retained")
             return
         }
         if (!isBridgeIdentity(accessory.manufacturer, accessory.model, accessory.version)) {
@@ -198,12 +229,14 @@ class MainActivity : Activity(), AccessoryTransport.Listener, LiveVideoDecoder.L
     }
 
     private fun open(accessory: UsbAccessory) {
-        if (transport?.matches(accessory) == true) return
+        cancelWirelessRecovery()
+        if ((transport as? AccessoryTransport)?.matches(accessory) == true) return
         activeAccessoryKey = accessoryKey(accessory)
         accessoryPermissionGate.onResult(activeAccessoryKey!!)
         val previous = transport
         transport = null
         previous?.close()
+        wireless.stop()
         val descriptor = usbManager.openAccessory(accessory) ?: run {
             render(GlassesState.ERROR, "Could not open bridge USB accessory")
             return
@@ -219,6 +252,7 @@ class MainActivity : Activity(), AccessoryTransport.Listener, LiveVideoDecoder.L
         runCatching {
             when (frame.type) {
                 MessageType.HELLO -> {
+                    if (wirelessRecoveryActive) finishWirelessRecovery()
                     sessionGuard.resetConnection()
                     displayWakeGate.resetConnection()
                     currentSourceKind = null
@@ -292,9 +326,23 @@ class MainActivity : Activity(), AccessoryTransport.Listener, LiveVideoDecoder.L
     }
 
     override fun onDisconnected(message: String) = runOnUiThread {
-        if (!destroying && transport != null) exitToHomeAfterCableDetach(message)
+        val lost = transport ?: return@runOnUiThread
+        if (destroying) return@runOnUiThread
+        if (lost.transportName == "USB/AOA") exitToHomeAfterCableDetach(message)
+        else {
+            transport = null
+            decoder.stop(null)
+            sessionGuard.resetConnection()
+            beginWirelessRecovery(message)
+        }
     }
     override fun onError(message: String) = runOnUiThread {
+        if (destroying || exitingForUserAction || exitingForCableDetach) return@runOnUiThread
+        if (wirelessRecoveryActive || transport?.transportName?.startsWith("Wi-Fi") == true) {
+            Log.w(TAG, "Wireless link error before recovery: $message")
+            render(GlassesState.CONNECTING, "Wireless link changed; reconnecting automatically")
+            return@runOnUiThread
+        }
         val failedSession = sessionGuard.currentSessionId
         if (failedSession != 0uL && sessionGuard.acceptStop(failedSession)) {
             send(Frame(MessageType.LIVE_STOP, payload = LivePayloads.encodeStop(
@@ -325,6 +373,7 @@ class MainActivity : Activity(), AccessoryTransport.Listener, LiveVideoDecoder.L
     }
 
     override fun onState(state: LiveVideoDecoder.DecoderState, detail: String?) {
+        if (destroying || exitingForCableDetach || exitingForUserAction) return
         when (state) {
             LiveVideoDecoder.DecoderState.IDLE -> render(GlassesState.READY, detail)
             LiveVideoDecoder.DecoderState.LOADING -> render(GlassesState.LOADING, detail)
@@ -344,6 +393,7 @@ class MainActivity : Activity(), AccessoryTransport.Listener, LiveVideoDecoder.L
 
     private fun exitToHomeAfterCableDetach(message: String) {
         if (destroying || exitingForCableDetach) return
+        cancelWirelessRecovery()
         exitingForCableDetach = true
         Log.i(TAG, "active bridge cable disconnected; exiting to HOME: $message")
         val currentTransport = transport
@@ -386,6 +436,16 @@ class MainActivity : Activity(), AccessoryTransport.Listener, LiveVideoDecoder.L
     }
 
     private fun routeInput(input: PlayerInput) {
+        if (input == PlayerInput.DOUBLE_TAP) {
+            cancelWirelessRecovery()
+            wireless.abortPairing()
+            exitApplication("Double tap exited Display Bridge")
+            return
+        }
+        if (transport == null && input == PlayerInput.SINGLE_TAP) {
+            startWirelessFromGlasses()
+            return
+        }
         val mode = if (currentState != GlassesState.PLAYING) InputMode.MAIN
         else if (overlayModel.isVisible) InputMode.OVERLAY_VISIBLE else InputMode.PLAYER_HIDDEN
         if (overlayModel.isVisible) scheduleOverlayHide()
@@ -399,56 +459,160 @@ class MainActivity : Activity(), AccessoryTransport.Listener, LiveVideoDecoder.L
                 FocusMove.PREVIOUS -> overlayModel.previous()
                 FocusMove.NEXT -> overlayModel.next()
             })
-            is PlayerInputAction.ExitToMain -> handleConfiguredExit(
-                ConfiguredExitAction.MAIN_MENU,
-                action.requireConfirmation,
-            )
-            is PlayerInputAction.ExitApplication -> handleConfiguredExit(
-                ConfiguredExitAction.EXIT_APPLICATION,
-                action.requireConfirmation,
-            )
+            is PlayerInputAction.ExitApplication -> handleConfiguredExit(action.requireConfirmation)
         }
     }
 
-    private fun handleConfiguredExit(action: ConfiguredExitAction, requireConfirmation: Boolean) {
+    private fun handleConfiguredExit(requireConfirmation: Boolean) {
         if (!requireConfirmation) {
-            performConfiguredExit(action)
+            exitApplication("Glasses gesture exited application")
             return
         }
         when (exitConfirmation.onDoubleTap()) {
             ExitConfirmationAction.ARM -> {
                 mainHandler.removeCallbacks(disarmExit)
-                ui.setExitConfirmationVisible(true, when (action) {
-                    ConfiguredExitAction.MAIN_MENU -> "Double tap again to return to main screen"
-                    ConfiguredExitAction.EXIT_APPLICATION -> "Double tap again to exit Display Bridge"
-                })
+                ui.setExitConfirmationVisible(true, "Double tap again to exit Display Bridge")
                 mainHandler.postDelayed(disarmExit, EXIT_CONFIRMATION_TIMEOUT_MS)
-                Log.i(TAG, "configured exit armed action=$action")
+                Log.i(TAG, "configured exit armed")
             }
             ExitConfirmationAction.CONFIRM_EXIT -> {
                 mainHandler.removeCallbacks(disarmExit)
                 ui.setExitConfirmationVisible(false)
-                Log.i(TAG, "configured exit confirmed action=$action")
-                performConfiguredExit(action)
+                Log.i(TAG, "configured exit confirmed")
+                exitApplication("Glasses gesture exited application")
             }
         }
     }
 
-    private fun performConfiguredExit(action: ConfiguredExitAction) {
+    private fun exitApplication(detail: String) {
+        if (destroying || exitingForUserAction) return
+        exitingForUserAction = true
+        cancelWirelessRecovery()
+        wireless.abortPairing()
         resetExitConfirmation()
-        when (action) {
-            ConfiguredExitAction.MAIN_MENU -> stopActiveBridgeMode("Glasses gesture returned to main screen")
-            ConfiguredExitAction.EXIT_APPLICATION -> {
-                if (sessionGuard.currentSessionId != 0uL) stopActiveBridgeMode("Glasses gesture exited application")
-                finishAndRemoveTask()
-            }
+        val session = sessionGuard.currentSessionId
+        val stop = directExitStopPayload(session, detail)
+        if (stop != null) {
+            sessionGuard.acceptStop(session)
+            decoder.stop(stop)
         }
+        currentSourceKind = null
+        hidePlaybackOverlay()
+        if (::ui.isInitialized) ui.root.keepScreenOn = false
+        Log.i(TAG, "exiting glasses application session=$session detail=$detail")
+        if (stop == null || transport == null) {
+            completeUserExit()
+            return
+        }
+        mainHandler.postDelayed(finishUserExit, USER_EXIT_WRITE_TIMEOUT_MS)
+        transport?.send(Frame(MessageType.LIVE_STOP, payload = LivePayloads.encodeStop(stop))) {
+            mainHandler.post(::completeUserExit)
+        }
+    }
+
+    private fun completeUserExit() {
+        if (destroying) return
+        mainHandler.removeCallbacks(finishUserExit)
+        finishAndRemoveTask()
     }
 
     private fun resetExitConfirmation() {
         mainHandler.removeCallbacks(disarmExit)
         exitConfirmation.disarm()
         if (::ui.isInitialized) ui.setExitConfirmationVisible(false)
+    }
+
+    override fun onWirelessState(state: GlassesWirelessStage, detail: String) = runOnUiThread {
+        if (state == GlassesWirelessStage.ERROR && wirelessRecoveryActive) {
+            scheduleWirelessRecovery(detail)
+            return@runOnUiThread
+        }
+        when (state) {
+            GlassesWirelessStage.PAIRING -> render(GlassesState.PAIRING, detail)
+            GlassesWirelessStage.ERROR -> render(GlassesState.ERROR, detail)
+            GlassesWirelessStage.ACTIVE -> render(GlassesState.CONNECTING, detail)
+            else -> render(GlassesState.CONNECTING, detail)
+        }
+    }
+
+    override fun onWirelessConnection(connection: DbpTransport) = runOnUiThread {
+        if (transport != null) {
+            connection.close()
+            return@runOnUiThread
+        }
+        mainHandler.removeCallbacks(wirelessRecoveryRetry)
+        transport = connection
+        activeAccessoryKey = null
+        sessionGuard.resetConnection()
+        displayWakeGate.resetConnection()
+        render(GlassesState.CONNECTING, "Authenticated wireless transport; waiting for DBP1 HELLO")
+    }
+
+    private fun beginWirelessRecovery(reason: String) {
+        if (!wirelessRecoveryActive) {
+            wirelessRecoveryActive = true
+            wirelessRecoveryAttempt = 0
+        }
+        wireless.stop()
+        scheduleWirelessRecovery(reason)
+    }
+
+    private fun scheduleWirelessRecovery(reason: String) {
+        if (!wirelessRecoveryActive || transport != null || destroying) return
+        mainHandler.removeCallbacks(wirelessRecoveryRetry)
+        val attempt = wirelessRecoveryAttempt++
+        val delayMs = WirelessRecoveryPolicy.delayMs(attempt)
+        render(
+            GlassesState.CONNECTING,
+            "$reason. Reconnecting automatically in ${delayMs / 1_000.0}s",
+        )
+        Log.i(TAG, "wireless recovery attempt=${attempt + 1} delayMs=$delayMs reason=$reason")
+        mainHandler.postDelayed(wirelessRecoveryRetry, delayMs)
+    }
+
+    private fun finishWirelessRecovery() {
+        mainHandler.removeCallbacks(wirelessRecoveryRetry)
+        wirelessRecoveryActive = false
+        wirelessRecoveryAttempt = 0
+        Log.i(TAG, "wireless transport and DBP1 recovered automatically")
+    }
+
+    private fun cancelWirelessRecovery() {
+        mainHandler.removeCallbacks(wirelessRecoveryRetry)
+        wirelessRecoveryActive = false
+        wirelessRecoveryAttempt = 0
+    }
+
+    private fun renderWirelessIdle() {
+        render(
+            GlassesState.WAITING_FOR_BRIDGE,
+            if (wireless.hasPairedPhone()) "Tap to reconnect to the paired phone wirelessly."
+            else "Tap to start one-time wireless pairing.",
+        )
+    }
+
+    private fun startWirelessFromGlasses() {
+        if (!GlassesWirelessClient.hasRequiredPermission(this)) {
+            val permissions = if (android.os.Build.VERSION.SDK_INT >= 33) {
+                arrayOf(Manifest.permission.NEARBY_WIFI_DEVICES)
+            } else {
+                arrayOf(Manifest.permission.ACCESS_COARSE_LOCATION, Manifest.permission.ACCESS_FINE_LOCATION)
+            }
+            requestPermissions(permissions, REQUEST_WIRELESS_PERMISSION)
+            render(GlassesState.CONNECTING, "Approve Nearby access for local Wi-Fi Direct discovery")
+            return
+        }
+        runCatching {
+            if (wireless.hasPairedPhone()) wireless.startConnect() else wireless.startPairing()
+        }.onFailure { render(GlassesState.ERROR, it.message) }
+    }
+
+    override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<out String>, grantResults: IntArray) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults)
+        if (requestCode == REQUEST_WIRELESS_PERMISSION) {
+            if (grantResults.isNotEmpty() && grantResults.all { it == PackageManager.PERMISSION_GRANTED }) startWirelessFromGlasses()
+            else render(GlassesState.ERROR, "Location access is required for Wi-Fi Direct discovery on Android 12")
+        }
     }
 
     private fun onControlClicked(control: OverlayControl) {
@@ -464,25 +628,8 @@ class MainActivity : Activity(), AccessoryTransport.Listener, LiveVideoDecoder.L
             scheduleOverlayHide()
         } else {
             Log.i(TAG, "playback overlay activating Exit session=${sessionGuard.currentSessionId} state=$currentState")
-            stopActiveBridgeModeFromOverlay()
+            exitApplication("Glasses playback overlay Exit")
         }
-    }
-
-    private fun stopActiveBridgeModeFromOverlay() {
-        stopActiveBridgeMode("Glasses playback overlay Exit")
-    }
-
-    private fun stopActiveBridgeMode(detail: String) {
-        val session = sessionGuard.currentSessionId
-        if (session == 0uL) return
-        val stop = LiveStopPayload(session, StopReason.USER, detail)
-        send(Frame(MessageType.LIVE_STOP, payload = LivePayloads.encodeStop(stop)))
-        sessionGuard.acceptStop(session)
-        currentSourceKind = null
-        decoder.stop(stop)
-        hidePlaybackOverlay()
-        render(GlassesState.READY, "Bridge mode stopped from glasses")
-        Log.i(TAG, "active bridge mode stopped from glasses session=$session detail=$detail")
     }
 
     private fun sendMediaCommand(command: MediaCommand) {
@@ -576,15 +723,18 @@ class MainActivity : Activity(), AccessoryTransport.Listener, LiveVideoDecoder.L
         private const val EXIT_CONFIRMATION_TIMEOUT_MS = 3_000L
         private const val DISPLAY_WAKE_PULSE_MS = 15_000L
         private const val DISPLAY_WAKE_LOCK_MS = 10_000L
+        private const val USER_EXIT_WRITE_TIMEOUT_MS = 500L
+        private const val REQUEST_WIRELESS_PERMISSION = 24_018
         private const val TAG = "RdbGlassesMain"
 
         fun isBridgeIdentity(manufacturer: String?, model: String?, version: String?): Boolean = manufacturer == "Zhilin" &&
             model == "Rokid Display Bridge" && version == "1.0"
 
-        internal fun overlayExitStopPayload(sessionId: ULong): LiveStopPayload {
-            require(sessionId != 0uL)
-            return LiveStopPayload(sessionId, StopReason.USER, "Glasses playback overlay Exit")
-        }
+        internal fun directExitStopPayload(sessionId: ULong, detail: String): LiveStopPayload? =
+            if (sessionId == 0uL) null else LiveStopPayload(sessionId, StopReason.USER, detail)
+
+        internal fun overlayExitStopPayload(sessionId: ULong): LiveStopPayload =
+            requireNotNull(directExitStopPayload(sessionId, "Glasses playback overlay Exit"))
 
         internal fun accessoryKey(accessory: UsbAccessory): String =
             "${accessory.manufacturer}\u0000${accessory.model}\u0000${accessory.version}\u0000${accessory.serial}"
@@ -594,7 +744,6 @@ class MainActivity : Activity(), AccessoryTransport.Listener, LiveVideoDecoder.L
             .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP)
     }
 
-    private enum class ConfiguredExitAction { MAIN_MENU, EXIT_APPLICATION }
 }
 
 internal class AccessoryPermissionGate {

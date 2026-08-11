@@ -11,6 +11,14 @@ data class FramePlacementFavorite(
     val layout: DisplayLayoutPayload,
 )
 
+internal fun FramePlacementFavorite.matchesLayout(value: DisplayLayoutPayload): Boolean {
+    val favoriteLayout = layout.clamped()
+    val currentLayout = value.clamped()
+    return favoriteLayout.scalePermille == currentLayout.scalePermille &&
+        favoriteLayout.offsetXPermille == currentLayout.offsetXPermille &&
+        favoriteLayout.offsetYPermille == currentLayout.offsetYPermille
+}
+
 class FramePlacementFavoritesStore(context: Context) {
     private val preferences = context.getSharedPreferences(PREFERENCES_NAME, Context.MODE_PRIVATE)
 
@@ -23,9 +31,21 @@ class FramePlacementFavoritesStore(context: Context) {
         val favorites = load().toMutableList()
         val nextId = (favorites.maxOfOrNull(FramePlacementFavorite::id) ?: 0L) + 1L
         val favorite = FramePlacementFavorite(nextId, effectiveName, layout.clamped())
-        favorites += favorite
+        favorites.add(0, favorite)
         persist(favorites)
         return favorite
+    }
+
+    @Synchronized
+    fun update(id: Long, name: String, layout: DisplayLayoutPayload): FramePlacementFavorite? {
+        val effectiveName = name.trim().also { require(it.isNotEmpty()) { "Favorite name must not be blank" } }
+        val favorites = load().toMutableList()
+        val index = favorites.indexOfFirst { it.id == id }
+        if (index < 0) return null
+        val updated = FramePlacementFavorite(id, effectiveName, layout.clamped())
+        favorites[index] = updated
+        persist(favorites)
+        return updated
     }
 
     @Synchronized

@@ -10,17 +10,20 @@ import android.view.ViewGroup
 import android.widget.LinearLayout
 import android.widget.ScrollView
 import android.widget.TextView
-import androidx.core.view.ViewCompat
-import androidx.core.view.WindowInsetsCompat
+import androidx.drawerlayout.widget.DrawerLayout
 import com.google.android.material.button.MaterialButton
+import com.google.android.material.button.MaterialButtonToggleGroup
 import com.google.android.material.card.MaterialCardView
 import com.google.android.material.chip.Chip
 import com.google.android.material.color.MaterialColors
+import com.google.android.material.materialswitch.MaterialSwitch
 
 internal class CompanionDashboard(
     private val activity: Activity,
     private val layoutStore: DisplayLayoutStore,
     private val actions: Actions,
+    usbAutoLaunchEnabled: Boolean = true,
+    preferredOutputMode: PreferredOutputMode = PreferredOutputMode.EXTERNAL_DISPLAY,
 ) {
     data class Actions(
         val connect: () -> Unit,
@@ -31,21 +34,32 @@ internal class CompanionDashboard(
         val disconnect: () -> Unit = {},
         val framePlacement: () -> Unit = {},
         val gestureSettings: () -> Unit = {},
+        val usbAutoLaunchChanged: (Boolean) -> Unit = {},
+        val pairWireless: () -> Unit = {},
+        val connectWireless: () -> Unit = {},
+        val forgetWireless: () -> Unit = {},
     )
 
-    val root: ScrollView
+    val root: DrawerLayout
 
     private val connectionChip = Chip(activity)
     private val connectionTitle = TextView(activity)
     private val connectionDetail = TextView(activity)
     private lateinit var connectionButton: MaterialButton
+    private lateinit var connectionModeGroup: MaterialButtonToggleGroup
+    private lateinit var wiredButton: MaterialButton
+    private lateinit var wirelessButton: MaterialButton
+    private lateinit var wiredSettings: View
+    private lateinit var wirelessSettings: View
+    private lateinit var wirelessPairButton: MaterialButton
+    private lateinit var wirelessForgetButton: MaterialButton
     private val externalButton: MaterialButton
     private val mirrorButton: MaterialButton
     private val errorCard: MaterialCardView
     private val errorText = TextView(activity)
-    private val technicalDetails = TextView(activity)
-    private val technicalToggle: MaterialButton
-    private val metricValues = linkedMapOf<String, TextView>()
+    private var selectedConnectionMode = ConnectionMode.WIRED
+    private var preferredOutputMode = preferredOutputMode
+    private var latestSnapshot = BridgeSnapshot()
     private val primary = color(androidx.appcompat.R.attr.colorPrimary, 0xFF536BAF.toInt())
     private val primaryContainer = color(com.google.android.material.R.attr.colorPrimaryContainer, 0xFFDCE1FF.toInt())
     private val onPrimaryContainer = color(com.google.android.material.R.attr.colorOnPrimaryContainer, 0xFF0A1B4B.toInt())
@@ -54,6 +68,7 @@ internal class CompanionDashboard(
     private val surfaceContainer = color(com.google.android.material.R.attr.colorSurfaceContainer, 0xFFF0EDF5.toInt())
     private val onSurface = color(com.google.android.material.R.attr.colorOnSurface, 0xFF1B1B20.toInt())
     private val onSurfaceVariant = color(com.google.android.material.R.attr.colorOnSurfaceVariant, 0xFF45464F.toInt())
+    private val outline = color(com.google.android.material.R.attr.colorOutline, 0xFF757680.toInt())
     private val error = color(android.R.attr.colorError, 0xFFBA1A1A.toInt())
     private val onError = color(com.google.android.material.R.attr.colorOnError, Color.WHITE)
     private val errorContainer = color(com.google.android.material.R.attr.colorErrorContainer, 0xFFFFDAD6.toInt())
@@ -62,23 +77,23 @@ internal class CompanionDashboard(
     init {
         val content = LinearLayout(activity).apply {
             orientation = LinearLayout.VERTICAL
-            setPadding(dp(20), dp(24), dp(20), dp(40))
+            setPadding(dp(20), dp(8), dp(20), dp(40))
             setBackgroundColor(surface)
         }
 
-        content.addView(header())
-        content.addView(connectionCard(), margin(top = 22))
+        content.addView(sectionTitle("Connection"), margin(top = 14, bottom = 10))
+        content.addView(connectionCard(usbAutoLaunchEnabled))
 
         content.addView(sectionTitle("Output mode"), margin(top = 26, bottom = 10))
         externalButton = modeButton(
             "External display",
-            "For apps that support Android presentation displays",
+            "Use as an Android external display",
             R.drawable.ic_external_display,
             actions.externalDisplay,
         )
         mirrorButton = modeButton(
             "Screen mirror",
-            "Capture the phone after fresh Android consent",
+            "Mirror the phone screen",
             R.drawable.ic_screen_mirror,
             actions.screenMirror,
         )
@@ -108,82 +123,16 @@ internal class CompanionDashboard(
         }
         content.addView(errorCard, margin(top = 16))
 
-        content.addView(sectionTitle("Frame placement"), margin(top = 26, bottom = 4))
-        content.addView(body("Adjust position, size, preview and saved favorites on a dedicated screen."), margin(bottom = 10))
-        val frameCard = card(surfaceContainer).apply {
-            id = R.id.frame_card
-            addView(MaterialButton(activity, null, com.google.android.material.R.attr.materialButtonOutlinedStyle).apply {
-                id = R.id.frame_placement_action
-                text = "Open frame placement"
-                isAllCaps = false
-                minHeight = dp(56)
-                setOnClickListener { actions.framePlacement() }
-            }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
-                setMargins(dp(12), dp(12), dp(12), dp(12))
-            })
-        }
-        content.addView(frameCard)
-
-        content.addView(sectionTitle("Glasses gestures"), margin(top = 26, bottom = 4))
-        content.addView(body("Configure swipes, tap, double tap and which frame favorites take part in gesture cycling."), margin(bottom = 10))
-        content.addView(card(surfaceContainer).apply {
-            id = R.id.gesture_settings_card
-            addView(MaterialButton(activity, null, com.google.android.material.R.attr.materialButtonOutlinedStyle).apply {
-                id = R.id.gesture_settings_action
-                text = "Open gesture settings"
-                isAllCaps = false
-                minHeight = dp(56)
-                setOnClickListener { actions.gestureSettings() }
-            }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
-                setMargins(dp(12), dp(12), dp(12), dp(12))
-            })
-        })
-
-        content.addView(sectionTitle("Technical details"), margin(top = 26, bottom = 10))
-        technicalDetails.apply {
-            id = R.id.technical_details
-            setTextColor(onSurfaceVariant)
-            textSize = 13f
-            typeface = Typeface.MONOSPACE
-            setTextIsSelectable(true)
-            visibility = View.GONE
-            setPadding(dp(4), dp(12), dp(4), dp(4))
-        }
-        technicalToggle = MaterialButton(activity, null, com.google.android.material.R.attr.materialButtonOutlinedStyle).apply {
-            text = "Show diagnostics"
-            isAllCaps = false
-            setIconResource(R.drawable.ic_diagnostics)
-            setOnClickListener {
-                val show = technicalDetails.visibility != View.VISIBLE
-                technicalDetails.visibility = if (show) View.VISIBLE else View.GONE
-                text = if (show) "Hide diagnostics" else "Show diagnostics"
-            }
-        }
-        content.addView(card(surfaceContainer).apply {
-            id = R.id.technical_card
-            addView(LinearLayout(activity).apply {
-                orientation = LinearLayout.VERTICAL
-                setPadding(dp(14), dp(12), dp(14), dp(12))
-                addView(sectionTitle("Live performance"), margin(bottom = 6))
-                addView(metricsCard(), margin(bottom = 12))
-                addView(technicalToggle)
-                addView(technicalDetails)
-            })
-        })
-
-        root = ScrollView(activity).apply {
+        val scroll = ScrollView(activity).apply {
             isFillViewport = true
             setBackgroundColor(surface)
             addView(content)
-            ViewCompat.setOnApplyWindowInsetsListener(this) { view, insets ->
-                val bars = insets.getInsets(WindowInsetsCompat.Type.systemBars())
-                view.setPadding(bars.left, bars.top, bars.right, bars.bottom)
-                insets
-            }
         }
+        root = companionPage(activity, CompanionPage.HOME, "Display Bridge", scroll, R.id.header_title).root
     }
 
     fun render(value: BridgeSnapshot) {
+        latestSnapshot = value
         connectionChip.text = value.connection.displayName()
         connectionTitle.text = when (value.connection) {
             ConnectionState.READY -> "Glasses connected"
@@ -191,43 +140,38 @@ internal class CompanionDashboard(
             ConnectionState.DISCONNECTED -> "Waiting for glasses"
             else -> "Connecting to glasses"
         }
-        connectionDetail.text = value.connectionDetail
+        connectionDetail.text = when (value.connection) {
+            ConnectionState.READY -> if (value.transport.startsWith("Wi-Fi")) "Wireless" else "Wired"
+            ConnectionState.DISCONNECTED -> "Choose Wired or Wireless"
+            ConnectionState.USB_PERMISSION -> value.connectionDetail
+            ConnectionState.ERROR -> value.error ?: value.connectionDetail
+            else -> "Connecting…"
+        }
         val healthy = value.connection == ConnectionState.READY
-        connectionChip.chipBackgroundColor = ColorStateList.valueOf(if (healthy) primaryContainer else surfaceContainer)
+        connectionChip.chipBackgroundColor = ColorStateList.valueOf(if (healthy) primaryContainer else surface)
         connectionChip.setTextColor(if (healthy) onPrimaryContainer else onSurfaceVariant)
 
-        styleModeButton(externalButton, value.mode == BridgeMode.EXTERNAL_DISPLAY)
-        styleModeButton(mirrorButton, value.mode == BridgeMode.SCREEN_MIRROR)
-        val connected = value.connection == ConnectionState.READY || value.connection == ConnectionState.HANDSHAKING ||
-            (value.connection == ConnectionState.ERROR && value.handshake.startsWith("DBP1 ready"))
-        connectionButton.text = if (connected) "Disconnect" else "Connect"
-        connectionButton.backgroundTintList = ColorStateList.valueOf(if (connected) error else primary)
-        connectionButton.setTextColor(if (connected) onError else onPrimary)
-        connectionButton.setOnClickListener { if (connected) actions.disconnect() else actions.connect() }
-
-        metricValues.getValue("FPS").text = value.frameRate.toString()
-        metricValues.getValue("BITRATE").text = if (value.bitrate > 0) "${value.bitrate / 1_000}k" else "—"
-        metricValues.getValue("SENT").text = value.sentFrames.toString()
-        metricValues.getValue("DECODED").text = value.decodedFrames.toString()
-        metricValues.getValue("DROPPED").text = value.droppedFrames.toString()
-        metricValues.getValue("QUEUE").text = value.queueDepth.toString()
+        val displayedMode = value.mode.takeUnless { it == BridgeMode.IDLE } ?: preferredOutputMode.bridgeMode
+        styleModeButton(externalButton, displayedMode == BridgeMode.EXTERNAL_DISPLAY)
+        styleModeButton(mirrorButton, displayedMode == BridgeMode.SCREEN_MIRROR)
+        if (value.transport.startsWith("Wi-Fi")) selectConnectionMode(ConnectionMode.WIRELESS)
+        else if (value.transport.startsWith("USB")) selectConnectionMode(ConnectionMode.WIRED)
+        updateConnectionControls(value)
 
         errorCard.visibility = if (value.error == null) View.GONE else View.VISIBLE
         errorText.text = value.error.orEmpty()
-        technicalDetails.text = value.technicalText()
     }
 
-    private fun header() = TextView(activity).apply {
-        id = R.id.header_title
-        text = "Display Bridge"
-        textSize = 28f
-        typeface = Typeface.DEFAULT_BOLD
-        setTextColor(onSurface)
+    fun setPreferredOutputMode(mode: PreferredOutputMode) {
+        preferredOutputMode = mode
+        val displayedMode = latestSnapshot.mode.takeUnless { it == BridgeMode.IDLE } ?: mode.bridgeMode
+        styleModeButton(externalButton, displayedMode == BridgeMode.EXTERNAL_DISPLAY)
+        styleModeButton(mirrorButton, displayedMode == BridgeMode.SCREEN_MIRROR)
     }
 
-    private fun connectionCard() = card(primaryContainer).apply {
+    private fun connectionCard(usbAutoLaunchEnabled: Boolean) = card(surfaceContainer).apply {
         id = R.id.connection_card
-        strokeColor = primary
+        strokeColor = outline
         strokeWidth = dp(1)
         addView(LinearLayout(activity).apply {
             orientation = LinearLayout.VERTICAL
@@ -240,15 +184,34 @@ internal class CompanionDashboard(
             addView(connectionTitle.apply {
                 textSize = 22f
                 typeface = Typeface.DEFAULT_BOLD
-                setTextColor(onPrimaryContainer)
+                setTextColor(onSurface)
                 setPadding(0, dp(10), 0, 0)
             })
             addView(connectionDetail.apply {
                 textSize = 14f
-                setTextColor(onPrimaryContainer)
+                setTextColor(onSurfaceVariant)
                 alpha = .82f
                 setPadding(0, dp(4), 0, dp(10))
             })
+            connectionModeGroup = MaterialButtonToggleGroup(activity).apply {
+                id = R.id.connection_mode_group
+                isSingleSelection = true
+                isSelectionRequired = true
+                wiredButton = connectionModeButton("Wired", R.id.connection_wired_action)
+                wirelessButton = connectionModeButton("Wireless", R.id.connection_wireless_action)
+                addView(wiredButton, LinearLayout.LayoutParams(0, dp(48), 1f))
+                addView(wirelessButton, LinearLayout.LayoutParams(0, dp(48), 1f))
+                check(R.id.connection_wired_action)
+                addOnButtonCheckedListener { _, checkedId, isChecked ->
+                    if (isChecked) {
+                        selectedConnectionMode = if (checkedId == R.id.connection_wireless_action) {
+                            ConnectionMode.WIRELESS
+                        } else ConnectionMode.WIRED
+                        updateConnectionControls(latestSnapshot)
+                    }
+                }
+            }
+            addView(connectionModeGroup, margin(bottom = 10))
             connectionButton = MaterialButton(activity).apply {
                 id = R.id.connection_action
                 text = "Connect"
@@ -256,10 +219,104 @@ internal class CompanionDashboard(
                 minHeight = dp(48)
                 backgroundTintList = ColorStateList.valueOf(primary)
                 setTextColor(onPrimary)
-                setOnClickListener { actions.connect() }
             }
             addView(connectionButton, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
+            wiredSettings = MaterialSwitch(activity).apply {
+                id = R.id.usb_autostart_toggle
+                text = "Open when glasses connect"
+                isChecked = usbAutoLaunchEnabled
+                setPadding(0, dp(10), 0, 0)
+                setOnCheckedChangeListener { _, checked -> actions.usbAutoLaunchChanged(checked) }
+            }
+            addView(wiredSettings)
+            wirelessSettings = LinearLayout(activity).apply {
+                orientation = LinearLayout.HORIZONTAL
+                visibility = View.GONE
+                wirelessPairButton = MaterialButton(activity, null, com.google.android.material.R.attr.materialButtonOutlinedStyle).apply {
+                    id = R.id.wireless_pair_action
+                    text = "Pair new"
+                    isAllCaps = false
+                    backgroundTintList = ColorStateList.valueOf(Color.TRANSPARENT)
+                    strokeColor = ColorStateList.valueOf(primary)
+                    strokeWidth = dp(1)
+                    setTextColor(primary)
+                    setOnClickListener { actions.pairWireless() }
+                }
+                addView(wirelessPairButton, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
+                wirelessForgetButton = MaterialButton(activity, null, com.google.android.material.R.attr.materialButtonOutlinedStyle).apply {
+                    id = R.id.wireless_forget_action
+                    text = "Forget"
+                    isAllCaps = false
+                    backgroundTintList = ColorStateList.valueOf(errorContainer)
+                    strokeColor = ColorStateList.valueOf(this@CompanionDashboard.error)
+                    strokeWidth = dp(1)
+                    setTextColor(onErrorContainer)
+                    setOnClickListener { actions.forgetWireless() }
+                }
+                addView(wirelessForgetButton, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply {
+                    marginStart = dp(8)
+                })
+            }
+            addView(wirelessSettings, margin(top = 10))
         })
+    }
+
+    private fun connectionModeButton(label: String, viewId: Int) =
+        MaterialButton(activity, null, com.google.android.material.R.attr.materialButtonOutlinedStyle).apply {
+            id = viewId
+            text = label
+            isAllCaps = false
+            isCheckable = true
+        }
+
+    private fun selectConnectionMode(mode: ConnectionMode) {
+        if (selectedConnectionMode == mode) return
+        selectedConnectionMode = mode
+        connectionModeGroup.check(if (mode == ConnectionMode.WIRELESS) R.id.connection_wireless_action else R.id.connection_wired_action)
+    }
+
+    private fun updateConnectionControls(value: BridgeSnapshot) {
+        val connected = value.connection == ConnectionState.READY || value.connection == ConnectionState.HANDSHAKING ||
+            (value.connection == ConnectionState.ERROR && value.handshake.startsWith("DBP1 ready"))
+        connectionModeGroup.isEnabled = true
+        wiredButton.isEnabled = true
+        wirelessButton.isEnabled = true
+        wiredButton.isClickable = !connected
+        wirelessButton.isClickable = !connected
+        wiredButton.isFocusable = !connected
+        wirelessButton.isFocusable = !connected
+        wiredSettings.visibility = if (selectedConnectionMode == ConnectionMode.WIRED) View.VISIBLE else View.GONE
+        wirelessSettings.visibility =
+            if (selectedConnectionMode == ConnectionMode.WIRELESS && !connected) View.VISIBLE else View.GONE
+        wirelessPairButton.visibility = if (value.wirelessPaired) View.GONE else View.VISIBLE
+        wirelessForgetButton.visibility = if (value.wirelessPaired) View.VISIBLE else View.GONE
+        wirelessPairButton.isEnabled = true
+        wirelessForgetButton.isEnabled = true
+        styleConnectionModeButton(wiredButton, selectedConnectionMode == ConnectionMode.WIRED)
+        styleConnectionModeButton(wirelessButton, selectedConnectionMode == ConnectionMode.WIRELESS)
+        connectionButton.text = when {
+            connected -> "Disconnect"
+            selectedConnectionMode == ConnectionMode.WIRELESS && !value.wirelessPaired -> "Pair"
+            else -> "Connect"
+        }
+        connectionButton.backgroundTintList = ColorStateList.valueOf(if (connected) error else primary)
+        connectionButton.setTextColor(if (connected) onError else onPrimary)
+        connectionButton.setOnClickListener {
+            when {
+                connected -> actions.disconnect()
+                selectedConnectionMode == ConnectionMode.WIRELESS && !value.wirelessPaired -> actions.pairWireless()
+                selectedConnectionMode == ConnectionMode.WIRELESS -> actions.connectWireless()
+                else -> actions.connect()
+            }
+        }
+    }
+
+    private fun styleConnectionModeButton(button: MaterialButton, selected: Boolean) {
+        button.backgroundTintList = ColorStateList.valueOf(if (selected) primary else Color.TRANSPARENT)
+        button.setTextColor(if (selected) onPrimary else onSurface)
+        button.strokeColor = ColorStateList.valueOf(if (selected) primary else outline)
+        button.strokeWidth = dp(if (selected) 2 else 1)
+        button.alpha = 1f
     }
 
     private fun modeButton(title: String, supporting: String, iconRes: Int, action: () -> Unit) =
@@ -283,44 +340,11 @@ internal class CompanionDashboard(
         }
 
     private fun styleModeButton(button: MaterialButton, selected: Boolean) {
-        button.backgroundTintList = ColorStateList.valueOf(if (selected) primaryContainer else surfaceContainer)
-        button.strokeColor = ColorStateList.valueOf(if (selected) primary else Color.TRANSPARENT)
-        button.strokeWidth = if (selected) dp(2) else 0
-        button.setTextColor(if (selected) onPrimaryContainer else onSurface)
-        button.iconTint = ColorStateList.valueOf(if (selected) primary else onSurfaceVariant)
-    }
-
-    private fun metricsCard() = card(surfaceContainer).apply {
-        id = R.id.metrics_card
-        val column = LinearLayout(activity).apply {
-            orientation = LinearLayout.VERTICAL
-            setPadding(dp(10), dp(12), dp(10), dp(12))
-        }
-        listOf(listOf("FPS", "BITRATE", "QUEUE"), listOf("SENT", "DECODED", "DROPPED")).forEach { rowKeys ->
-            column.addView(LinearLayout(activity).apply {
-                orientation = LinearLayout.HORIZONTAL
-                rowKeys.forEach { key -> addView(metric(key), LinearLayout.LayoutParams(0, dp(76), 1f)) }
-            })
-        }
-        addView(column)
-    }
-
-    private fun metric(label: String) = LinearLayout(activity).apply {
-        orientation = LinearLayout.VERTICAL
-        gravity = Gravity.CENTER
-        addView(TextView(activity).apply {
-            text = "—"
-            textSize = 21f
-            typeface = Typeface.DEFAULT_BOLD
-            setTextColor(onSurface)
-            metricValues[label] = this
-        })
-        addView(TextView(activity).apply {
-            text = label
-            textSize = 11f
-            letterSpacing = .08f
-            setTextColor(onSurfaceVariant)
-        })
+        button.backgroundTintList = ColorStateList.valueOf(if (selected) primary else surfaceContainer)
+        button.strokeColor = ColorStateList.valueOf(if (selected) primary else outline)
+        button.strokeWidth = dp(if (selected) 2 else 1)
+        button.setTextColor(if (selected) onPrimary else onSurface)
+        button.iconTint = ColorStateList.valueOf(if (selected) onPrimary else onSurfaceVariant)
     }
 
     private fun sectionTitle(value: String) = TextView(activity).apply {
@@ -351,6 +375,9 @@ internal class CompanionDashboard(
 
     private fun color(attr: Int, fallback: Int) = MaterialColors.getColor(activity, attr, fallback)
     private fun dp(value: Int) = (value * activity.resources.displayMetrics.density).toInt()
+
+    private enum class ConnectionMode { WIRED, WIRELESS }
+
 }
 
 internal fun ConnectionState.displayName() = name.replace('_', ' ')
@@ -362,6 +389,8 @@ internal fun BridgeMode.displayName() = when (this) {
 
 internal fun BridgeSnapshot.technicalText() = buildString {
     appendLine("Connection : $connection — $connectionDetail")
+    appendLine("Transport  : $transport")
+    appendLine("Wireless   : $wirelessStage · paired=$wirelessPaired")
     appendLine("AOA identity: $aoaIdentity")
     appendLine("Handshake  : $handshake")
     appendLine("Mode       : $mode")

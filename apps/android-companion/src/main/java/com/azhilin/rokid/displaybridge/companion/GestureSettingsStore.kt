@@ -22,9 +22,9 @@ class GestureSettingsStore(context: Context) {
         policy = GestureSettingsPayload(
             swipeAction = enumValue(preferences.getString(KEY_SWIPE, null), SwipeGestureAction.SEEK),
             tapAction = enumValue(preferences.getString(KEY_TAP, null), TapGestureAction.PLAY_PAUSE),
-            doubleTapAction = enumValue(preferences.getString(KEY_DOUBLE_TAP, null), DoubleTapGestureAction.SHOW_OVERLAY),
+            doubleTapAction = DoubleTapGestureAction.EXIT_APP,
             reverseSwipeDirections = preferences.getBoolean(KEY_REVERSE, false),
-            confirmExitWithSecondDoubleTap = preferences.getBoolean(KEY_CONFIRM_EXIT, true),
+            confirmExitWithSecondDoubleTap = false,
         ),
         disabledFavoriteIds = preferences.getStringSet(KEY_DISABLED_FAVORITES, emptySet()).orEmpty()
             .mapNotNull(String::toLongOrNull).filterTo(mutableSetOf()) { it > 0L },
@@ -35,9 +35,9 @@ class GestureSettingsStore(context: Context) {
         preferences.edit()
             .putString(KEY_SWIPE, value.policy.swipeAction.name)
             .putString(KEY_TAP, value.policy.tapAction.name)
-            .putString(KEY_DOUBLE_TAP, value.policy.doubleTapAction.name)
+            .putString(KEY_DOUBLE_TAP, DoubleTapGestureAction.EXIT_APP.name)
             .putBoolean(KEY_REVERSE, value.policy.reverseSwipeDirections)
-            .putBoolean(KEY_CONFIRM_EXIT, value.policy.confirmExitWithSecondDoubleTap)
+            .putBoolean(KEY_CONFIRM_EXIT, false)
             .putStringSet(KEY_DISABLED_FAVORITES, value.disabledFavoriteIds.filter { it > 0L }.mapTo(mutableSetOf(), Long::toString))
             .commit()
     }

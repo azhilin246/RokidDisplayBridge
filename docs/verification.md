@@ -66,3 +66,31 @@ The following remain explicit post-MVP gates rather than inferred successes:
 - Screen Mirror lock/unlock behavior across platform versions.
 
 OpenSpec task checkboxes remain the source of truth for incomplete hardware acceptance. A passing build does not mark those tasks complete.
+
+## Wireless 0.3.0 development gates
+
+Automated coverage validates P-256 shared-secret agreement, transcript-bound confirmation and reconnect proofs, fresh direction-separated traffic keys, bounded handshake and AES-GCM record codecs, tamper/replay rejection, encrypted single-peer persistence, loopback TOFU pairing/reconnect, and bidirectional encrypted TCP DBP1 framing.
+
+The 2026-08-10 debug gate passed all 101 tests (protocol 19, companion 47, glasses 35), both `lintDebug` tasks, and both release assemblies with no failures or blocking lint findings. Regression coverage includes bounded retry of transient P2P `BUSY` responses and waiting for a formed phone-owner group with an assigned address. `openspec validate add-wireless-display-bridge --strict` and `git diff --check -- .` also passed.
+
+Both `lintRelease` and `assembleRelease` then passed. The release-signed `0.3.0` (`6`) artifacts use APK Signature Scheme v2 and the existing Display Bridge certificate:
+
+| Artifact | SHA-256 |
+|---|---|
+| `android-companion-release.apk` | `5493131FA732CA9701B5A447891127B90E0AE2F826F94FAF631A5D40D2CC06E7` |
+| `glasses-release.apk` | `89208546685025E222B2FD9EA47F8F8F434D108BC744AF00152A351DC54ABDBC` |
+
+Both packages updated in place on their exact target devices without removing application data. Package Manager reports companion `0.3.0` (`6`, target SDK 36) in Pixel owner user 0 and glasses receiver `0.3.0` (`6`, target SDK 28) on RG_glasses. Neither application was launched automatically after installation.
+
+Live read-only capability inspection on the exact target Pixel 10 (API 36) and RG_glasses (API 32) confirms `android.hardware.wifi.direct`, `android.hardware.wifi.aware`, classic Bluetooth, and BLE on both devices. Wi-Fi was enabled on the phone and disabled on the glasses during the final inspection, so no group was formed during this non-interactive gate. Framework history also records successful stock Rokid P2P group formation on this exact pair. This proves radio/firmware capability but not third-party Display Bridge acceptance because the glasses-side stock service is privileged.
+
+The following remain mandatory manual wireless hardware gates after release-signed installation:
+
+- public-API DNS-SD discovery and group formation without the privileged Rokid service;
+- one-time automatic TOFU pairing and immediate double-tap exit during setup;
+- authenticated reconnect after both applications restart;
+- External Display and Screen Mirror video with bounded queue depth and recovery;
+- explicit USB/wireless selection without silent cable takeover;
+- simultaneous Bluetooth audio and wireless video;
+- P2P contention/retry while Hi Rokid has recently owned a group;
+- two 30-minute wireless soaks with thermal, latency, write-stall, sent/decoded/dropped, and queue evidence.

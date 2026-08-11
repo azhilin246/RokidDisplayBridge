@@ -1,6 +1,6 @@
 # Display Bridge
 
-Display Bridge turns Rokid Glasses into a low-latency, video-only Android display over USB. It consists of a phone companion and a separate glasses receiver connected through Android Open Accessory (AOA) and the bounded DBP1 protocol.
+Display Bridge turns Rokid Glasses into a low-latency, video-only Android display over USB or an optional local Wi-Fi Direct link. It consists of a phone companion and a separate glasses receiver connected through Android Open Accessory (AOA) or encrypted authenticated TCP and the bounded DBP1 protocol.
 
 > **Independent project:** Display Bridge is not affiliated with, endorsed by, or an official product of Rokid Corporation. Rokid and related product names are trademarks of their respective owners.
 
@@ -12,8 +12,9 @@ Display Bridge turns Rokid Glasses into a low-latency, video-only Android displa
 - **Screen Mirror** captures the whole phone display after fresh Android MediaProjection consent.
 - **Video only:** hardware AVC encoding/decoding; audio remains on the phone and follows normal Android/Bluetooth routing.
 - **Low-latency transport:** bounded queues, latest-frame pressure handling, fragmentation/reassembly, keyframe feedback, session/generation filtering, and idempotent cleanup.
-- **Glasses controls:** configurable tap, double-tap, and one-action-per-gesture swipes; media keys are routed back to Android.
-- **Frame Placement:** fixed 3:4 resizing and placement, live preview, named favorites, precise X/Y entry, and drag-and-drop ordering.
+- **Wireless mode:** local Wi-Fi Direct, encrypted authenticated TCP, and explicit one-time trust-on-first-use pairing without a router, code, gestures, or USB pairing.
+- **Glasses controls:** configurable tap and one-action-per-gesture swipes; double tap is reserved for immediate exit, and media keys are routed back to Android.
+- **Layout:** fixed 3:4 resizing and placement, live preview, named favorites, precise scale/X/Y entry, and drag-and-drop ordering.
 - **Diagnostics:** connection, AOA identity, handshake, encoder, thermal state, FPS, bitrate, sent/dropped frames, and queue depth.
 
 ## Packages
@@ -42,6 +43,7 @@ See [architecture](docs/architecture.md) and the [verification record](docs/veri
 - Android SDK 36
 - A phone with USB host support (tested on Pixel 10)
 - Rokid Glasses with a 480×640 display
+- Wi-Fi Direct support on both devices for optional wireless mode
 
 ## Build and verify
 
@@ -76,11 +78,24 @@ adb -s <glasses-serial> install -r "apps/glasses/build/outputs/apk/release/glass
 
 ## Usage
 
+### USB
+
 1. Install both APKs and open Display Bridge on the phone.
 2. Connect the glasses to the phone by USB and approve Android's USB requests when shown.
-3. External Display starts automatically after AOA/DBP1 handshake. Open any presentation-capable application on the phone.
-4. To mirror the phone instead, select Screen Mirror and approve the fresh system capture prompt.
-5. Configure frame placement and glasses gestures from the companion settings.
+3. Select External Display or Screen Mirror at any time. Display Bridge remembers the choice and applies it after each Wired or Wireless connection.
+4. Screen Mirror opens Android's capture-permission prompt when a new grant is required.
+5. Open Layout and Gestures from the companion menu when needed.
+
+### Wireless
+
+1. Enable Wi-Fi/Nearby access on both devices and manually open Display Bridge on the glasses.
+2. On the phone select **Pair new glasses**. On unpaired glasses, single tap starts wireless pairing.
+3. The explicit first connection performs a fresh ECDH handshake automatically and stores exactly one peer after mutual key confirmation. No gesture or code entry is required. Double tap still exits Display Bridge and cancels an in-progress connection.
+4. DBP1 then runs in bounded AES-256-GCM records with fresh directional keys. Later application launches mutually authenticate the stored peer and derive new traffic keys automatically.
+5. Use **Forget paired glasses** before pairing a replacement device.
+6. After authentication, the saved Output mode starts automatically; Screen Mirror requests Android capture permission when needed.
+
+Wireless mode requires no router, Internet route, account, cloud service, QR code, typed PIN, or USB pairing. If another application owns the Wi-Fi Direct group, release that group and retry.
 
 Protected or DRM content may appear black during Screen Mirror. The bridge does not capture audio, change audio routes, bypass protected surfaces, or emulate Chromecast/Miracast/HDMI.
 
@@ -112,7 +127,7 @@ Back up the keystore and its credentials securely. Losing them makes future in-p
 
 ## Privacy
 
-Display Bridge has no Internet permission, analytics, telemetry, account, or cloud backend. Video is hardware-encoded on the phone and sent only to the connected glasses over USB/AOA. Audio is never captured or transported. Bridge settings and favorites stay in local application storage.
+Display Bridge has no analytics, telemetry, account, cloud backend, or Internet client. Android requires the manifest permission named `INTERNET` for local Java TCP sockets; wireless video is bound to the peer Wi-Fi Direct link and is not uploaded. Video is hardware-encoded on the phone and sent only to the connected glasses over USB/AOA or AES-256-GCM protected local TCP. Audio is never captured or transported. Bridge settings, favorites, and Android-Keystore-encrypted single-peer wireless trust stay in local application storage.
 
 Screen Mirror starts only after fresh Android system MediaProjection consent for that session. Protected or DRM content may appear black according to Android policy. Diagnostics can expose device and playback metadata on-screen or in local logs; sanitize logs before sharing them.
 
