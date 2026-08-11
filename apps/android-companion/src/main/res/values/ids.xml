@@ -2,7 +2,22 @@
     <item name="connection_card" type="id" />
     <item name="connection_status" type="id" />
     <item name="connection_action" type="id" />
+    <item name="connection_mode_group" type="id" />
+    <item name="connection_wired_action" type="id" />
+    <item name="connection_wireless_action" type="id" />
+    <item name="usb_autostart_card" type="id" />
+    <item name="usb_autostart_toggle" type="id" />
+    <item name="wireless_card" type="id" />
+    <item name="wireless_pair_action" type="id" />
+    <item name="wireless_connect_action" type="id" />
+    <item name="wireless_forget_action" type="id" />
     <item name="header_title" type="id" />
+    <item name="navigation_drawer" type="id" />
+    <item name="navigation_view" type="id" />
+    <item name="nav_home" type="id" />
+    <item name="nav_layout" type="id" />
+    <item name="nav_gestures" type="id" />
+    <item name="nav_technical" type="id" />
     <item name="mode_external" type="id" />
     <item name="mode_mirror" type="id" />
     <item name="metrics_card" type="id" />

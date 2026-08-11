@@ -236,7 +236,7 @@ internal class GlassesUi(
             OverlayControl.PLAY_PAUSE -> "Play or pause"
             OverlayControl.SEEK_BACKWARD -> "Seek backward"
             OverlayControl.SEEK_FORWARD -> "Seek forward"
-            OverlayControl.EXIT -> "Exit current bridge mode"
+            OverlayControl.EXIT -> "Exit Display Bridge"
         }
         isFocusable = true
         isFocusableInTouchMode = true
@@ -272,8 +272,9 @@ internal class GlassesUi(
             GlassesState.READY -> "SELECT A MODE ON YOUR PHONE"
             GlassesState.WAITING_FOR_VIDEO -> "VIDEO WILL APPEAR AUTOMATICALLY"
             GlassesState.LOADING -> "VIDEO WILL APPEAR AUTOMATICALLY"
+            GlassesState.PAIRING -> "SWIPE LEFT / SWIPE RIGHT / TAP"
             GlassesState.ERROR -> "CHECK COMPANION DIAGNOSTICS"
-            else -> "DOUBLE TAP TWICE TO EXIT"
+            else -> "DOUBLE TAP TO EXIT"
         }
     }
 }

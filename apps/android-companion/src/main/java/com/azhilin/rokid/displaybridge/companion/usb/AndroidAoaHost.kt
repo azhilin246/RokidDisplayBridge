@@ -17,6 +17,7 @@ import com.azhilin.rokid.displaybridge.companion.BridgeIdentity
 import com.azhilin.rokid.displaybridge.protocol.Frame
 import com.azhilin.rokid.displaybridge.protocol.FrameCodec
 import com.azhilin.rokid.displaybridge.protocol.FrameStreamDecoder
+import com.azhilin.rokid.displaybridge.protocol.DbpTransport
 import java.io.Closeable
 import java.io.IOException
 import java.nio.ByteBuffer
@@ -299,7 +300,7 @@ class AndroidAoaConnection(
     private val output: UsbEndpoint,
     private val isAttached: () -> Boolean,
     private val listener: Listener,
-) : Closeable {
+) : DbpTransport {
     interface Listener { fun onFrame(frame: Frame); fun onDisconnected(message: String) }
     private val running = AtomicBoolean(false)
     private val closed = AtomicBoolean(false)
@@ -307,21 +308,24 @@ class AndroidAoaConnection(
     private val decoder = FrameStreamDecoder()
     private val writeLock = Any()
     private var worker: Thread? = null
-    val isOpen get() = running.get() && !closed.get()
+    override val isOpen get() = running.get() && !closed.get()
+    override val transportName: String = "USB/AOA"
 
     fun start() { if (running.compareAndSet(false, true)) worker = Thread(::readLoop, "rdb-phone-usb-reader").apply { start() } }
 
-    fun send(frame: Frame) {
-        val bytes = FrameCodec.encode(frame)
-        synchronized(writeLock) {
-            try {
+    override fun send(frame: Frame, completion: ((Boolean) -> Unit)?) {
+        val result = runCatching {
+            val bytes = FrameCodec.encode(frame)
+            synchronized(writeLock) {
                 AoaBulkWriter().write(bytes, running::get) { buffer, offset, length ->
                     handle.bulkTransfer(output, buffer, offset, length, 5_000)
                 }
-            } catch (error: Exception) {
-                disconnect(error.message ?: "AOA bulk write failed")
-                throw error
             }
+        }
+        completion?.invoke(result.isSuccess)
+        result.exceptionOrNull()?.let { error ->
+            disconnect(error.message ?: "AOA bulk write failed")
+            throw error
         }
     }
 

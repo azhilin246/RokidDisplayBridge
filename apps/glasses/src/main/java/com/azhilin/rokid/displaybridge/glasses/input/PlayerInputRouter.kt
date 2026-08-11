@@ -1,6 +1,5 @@
 package com.azhilin.rokid.displaybridge.glasses.input
 
-import com.azhilin.rokid.displaybridge.protocol.DoubleTapGestureAction
 import com.azhilin.rokid.displaybridge.protocol.GestureSettingsPayload
 import com.azhilin.rokid.displaybridge.protocol.MediaCommand
 import com.azhilin.rokid.displaybridge.protocol.SwipeGestureAction
@@ -17,7 +16,6 @@ internal sealed interface PlayerInputAction {
     data object HideOverlay : PlayerInputAction
     data object ActivateFocused : PlayerInputAction
     data class MoveFocus(val direction: FocusMove) : PlayerInputAction
-    data class ExitToMain(val requireConfirmation: Boolean) : PlayerInputAction
     data class ExitApplication(val requireConfirmation: Boolean) : PlayerInputAction
 }
 
@@ -26,9 +24,11 @@ internal object PlayerInputRouter {
         mode: InputMode,
         input: PlayerInput,
         settings: GestureSettingsPayload = GestureSettingsPayload(),
-    ): PlayerInputAction = when (mode) {
+    ): PlayerInputAction {
+        if (input == PlayerInput.DOUBLE_TAP) return PlayerInputAction.ExitApplication(false)
+        return when (mode) {
         InputMode.MAIN -> when (input) {
-            PlayerInput.DOUBLE_TAP -> PlayerInputAction.ExitApplication(settings.confirmExitWithSecondDoubleTap)
+            PlayerInput.DOUBLE_TAP -> PlayerInputAction.ExitApplication(false)
             else -> PlayerInputAction.None
         }
         InputMode.PLAYER_HIDDEN -> when (input) {
@@ -37,18 +37,15 @@ internal object PlayerInputRouter {
                 TapGestureAction.PLAY_PAUSE -> PlayerInputAction.SendMediaCommand(MediaCommand.PLAY_PAUSE)
                 TapGestureAction.SHOW_OVERLAY -> PlayerInputAction.ShowOverlay
             }
-            PlayerInput.DOUBLE_TAP -> when (settings.doubleTapAction) {
-                DoubleTapGestureAction.SHOW_OVERLAY -> PlayerInputAction.ShowOverlay
-                DoubleTapGestureAction.MAIN_MENU -> PlayerInputAction.ExitToMain(settings.confirmExitWithSecondDoubleTap)
-                DoubleTapGestureAction.EXIT_APP -> PlayerInputAction.ExitApplication(settings.confirmExitWithSecondDoubleTap)
-            }
+            PlayerInput.DOUBLE_TAP -> PlayerInputAction.ExitApplication(false)
             PlayerInput.PREVIOUS, PlayerInput.NEXT -> swipeAction(input, settings)
         }
         InputMode.OVERLAY_VISIBLE -> when (input) {
             PlayerInput.SINGLE_TAP -> PlayerInputAction.ActivateFocused
-            PlayerInput.DOUBLE_TAP -> PlayerInputAction.HideOverlay
+            PlayerInput.DOUBLE_TAP -> PlayerInputAction.ExitApplication(false)
             PlayerInput.PREVIOUS -> PlayerInputAction.MoveFocus(FocusMove.PREVIOUS)
             PlayerInput.NEXT -> PlayerInputAction.MoveFocus(FocusMove.NEXT)
+        }
         }
     }
 

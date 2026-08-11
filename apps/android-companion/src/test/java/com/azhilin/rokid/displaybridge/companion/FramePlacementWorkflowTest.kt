@@ -1,17 +1,21 @@
 package com.azhilin.rokid.displaybridge.companion
 
 import android.app.Activity
+import android.view.Gravity
 import android.view.View
 import android.view.ViewGroup
 import android.widget.TextView
 import androidx.recyclerview.widget.RecyclerView
 import androidx.test.core.app.ApplicationProvider
 import com.azhilin.rokid.displaybridge.protocol.DisplayLayoutPayload
+import com.google.android.material.button.MaterialButton
+import com.google.android.material.card.MaterialCardView
 import com.google.android.material.materialswitch.MaterialSwitch
 import com.google.android.material.textfield.TextInputLayout
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertThrows
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -68,10 +72,13 @@ class FramePlacementWorkflowTest {
         assertEquals(-300, first.layout.offsetXPermille.toInt())
         assertEquals(250, second.layout.offsetXPermille.toInt())
 
-        assertEquals(listOf(first.id, second.id), FramePlacementFavoritesStore(context).load().map { it.id })
-        store.move(second.id, 0)
         assertEquals(listOf(second.id, first.id), FramePlacementFavoritesStore(context).load().map { it.id })
+        store.move(first.id, 0)
+        assertEquals(listOf(first.id, second.id), FramePlacementFavoritesStore(context).load().map { it.id })
         assertEquals(second.layout, store.layout(second.id))
+        val updated = requireNotNull(store.update(second.id, "Edited", DisplayLayoutPayload(450u, 10, 20)))
+        assertEquals("Edited", updated.name)
+        assertEquals(450, store.layout(second.id)?.scalePermille?.toInt())
         assertTrue(store.delete(first.id))
         assertEquals(listOf(second.id), store.load().map { it.id })
         assertThrows(IllegalArgumentException::class.java) { store.add("   ", DisplayLayoutPayload()) }
@@ -81,11 +88,61 @@ class FramePlacementWorkflowTest {
         val first = FramePlacementFavorite(11, "First", DisplayLayoutPayload())
         val second = FramePlacementFavorite(12, "Second", DisplayLayoutPayload(offsetYPermille = 200))
         val third = FramePlacementFavorite(13, "Third", DisplayLayoutPayload(offsetYPermille = 400))
-        val adapter = FrameFavoriteAdapter({}, {}, {})
+        val adapter = FrameFavoriteAdapter({}, {}, {}, {})
         adapter.submitList(listOf(first, second, third))
 
         assertEquals(second, adapter.move(1, 0))
         assertEquals(listOf(12L, 11L, 13L), (0 until adapter.itemCount).map(adapter::getItemId))
+    }
+
+    @Test fun `favorite adapter highlights every exact layout match`() {
+        val activity = themedActivity()
+        val parent = RecyclerView(activity)
+        val current = DisplayLayoutPayload(700u, 120, -340)
+        val firstMatch = FramePlacementFavorite(1, "First match", current)
+        val secondMatch = FramePlacementFavorite(2, "Second match", current.copy())
+        val differentScale = FramePlacementFavorite(3, "Different scale", current.copy(scalePermille = 701u))
+        val adapter = FrameFavoriteAdapter({}, {}, {}, {})
+        adapter.submitList(listOf(firstMatch, secondMatch, differentScale))
+
+        adapter.setCurrentLayout(current)
+        val cards = (0 until adapter.itemCount).map { position ->
+            adapter.onCreateViewHolder(parent, 0).also { adapter.onBindViewHolder(it, position) }.itemView as MaterialCardView
+        }
+
+        assertTrue(cards[0].isSelected)
+        assertTrue(cards[0].isChecked)
+        assertTrue(cards[1].isSelected)
+        assertTrue(cards[1].isChecked)
+        assertFalse(cards[2].isSelected)
+        assertFalse(cards[2].isChecked)
+        assertTrue(cards[0].strokeWidth > cards[2].strokeWidth)
+        assertNotEquals(cards[0].cardBackgroundColor.defaultColor, cards[2].cardBackgroundColor.defaultColor)
+        val selectedName = allViews(cards[0]).filterIsInstance<TextView>().first { it.text == "First match" }
+        assertNotEquals(cards[0].cardBackgroundColor.defaultColor, selectedName.currentTextColor)
+    }
+
+    @Test fun `favorite action icons are centered in square buttons`() {
+        val activity = themedActivity()
+        val parent = RecyclerView(activity)
+        val adapter = FrameFavoriteAdapter({}, {}, {}, {})
+        adapter.submitList(listOf(FramePlacementFavorite(1, "Favorite", DisplayLayoutPayload())))
+        val holder = adapter.onCreateViewHolder(parent, 0)
+        adapter.onBindViewHolder(holder, 0)
+
+        val buttons = allViews(holder.itemView)
+            .filterIsInstance<MaterialButton>()
+            .filter { it.contentDescription?.toString() in setOf("Apply favorite", "Edit favorite", "Delete favorite") }
+        assertEquals(3, buttons.size)
+        buttons.forEach { button ->
+            assertEquals(button.layoutParams.width, button.layoutParams.height)
+            assertEquals(Gravity.CENTER, button.gravity)
+            assertEquals(0, button.iconPadding)
+            assertEquals(0, button.paddingLeft)
+            assertEquals(0, button.paddingTop)
+            assertEquals(0, button.paddingRight)
+            assertEquals(0, button.paddingBottom)
+        }
     }
 
     @Test fun `favorite list expands into the page without nested scrolling`() {
@@ -139,6 +196,8 @@ class FramePlacementWorkflowTest {
         assertNotNull(activity.findViewById<View>(R.id.favorites_container))
         assertTrue(activity.findViewById<View>(R.id.favorites_container) is RecyclerView)
         assertNotNull(activity.findViewById<View>(R.id.add_favorite_action))
+        assertTrue(activity.findViewById<com.google.android.material.navigation.NavigationView>(R.id.navigation_view)
+            .menu.findItem(R.id.nav_layout).isChecked)
         val toggle = activity.findViewById<MaterialSwitch>(R.id.preview_content_toggle)
         val preview = activity.findViewById<View>(R.id.frame_preview_surface)
         assertFalse(toggle.isChecked)
@@ -179,6 +238,11 @@ class FramePlacementWorkflowTest {
     private fun inputHints(view: View): List<String> = buildList {
         if (view is TextInputLayout) add(view.hint?.toString().orEmpty())
         if (view is ViewGroup) repeat(view.childCount) { addAll(inputHints(view.getChildAt(it))) }
+    }
+
+    private fun allViews(view: View): List<View> = buildList {
+        add(view)
+        if (view is ViewGroup) repeat(view.childCount) { addAll(allViews(view.getChildAt(it))) }
     }
 
 }

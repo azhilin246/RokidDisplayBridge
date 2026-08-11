@@ -3,11 +3,15 @@ package com.azhilin.rokid.displaybridge.companion
 import android.content.pm.PackageManager
 import android.content.pm.ServiceInfo
 import android.hardware.display.DisplayManager
+import android.graphics.Color
 import android.media.MediaCodecInfo
 import android.media.MediaFormat
+import android.net.wifi.p2p.WifiP2pManager
+import android.net.wifi.p2p.WifiP2pInfo
 import android.app.Activity
 import android.view.KeyEvent
 import android.view.View
+import android.view.ViewGroup
 import androidx.core.graphics.Insets
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
@@ -22,6 +26,7 @@ import com.azhilin.rokid.displaybridge.companion.usb.UsbPermissionStage
 import com.azhilin.rokid.displaybridge.companion.usb.selectTargetUsbDevice
 import com.azhilin.rokid.displaybridge.companion.usb.shouldConnectOnAttach
 import com.azhilin.rokid.displaybridge.companion.usb.usbPermissionStage
+import com.azhilin.rokid.displaybridge.companion.wireless.PhoneWirelessHost
 import com.azhilin.rokid.displaybridge.protocol.FeedbackFlags
 import com.azhilin.rokid.displaybridge.protocol.DisplayLayoutPayload
 import com.azhilin.rokid.displaybridge.protocol.FramePriority
@@ -32,6 +37,8 @@ import com.azhilin.rokid.displaybridge.protocol.QueueStats
 import java.io.IOException
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNotEquals
+import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertThrows
 import org.junit.Assert.assertTrue
@@ -44,7 +51,33 @@ import com.google.android.material.button.MaterialButton
 
 @RunWith(RobolectricTestRunner::class)
 class CompanionUnitTest {
-    @Test fun `Material dashboard prioritizes health modes and live metrics`() {
+    @Test fun `wireless host retries only bounded P2P busy failures`() {
+        assertTrue(PhoneWirelessHost.shouldRetryBusy(WifiP2pManager.BUSY, 0))
+        assertTrue(PhoneWirelessHost.shouldRetryBusy(WifiP2pManager.BUSY, 5))
+        assertFalse(PhoneWirelessHost.shouldRetryBusy(WifiP2pManager.BUSY, 6))
+        assertFalse(PhoneWirelessHost.shouldRetryBusy(WifiP2pManager.ERROR, 0))
+    }
+
+    @Test fun `wireless host refreshes only while waiting for a group`() {
+        assertTrue(PhoneWirelessHost.shouldRefreshDiscovery(true, false, false))
+        assertFalse(PhoneWirelessHost.shouldRefreshDiscovery(false, false, false))
+        assertFalse(PhoneWirelessHost.shouldRefreshDiscovery(true, true, false))
+        assertFalse(PhoneWirelessHost.shouldRefreshDiscovery(true, false, true))
+    }
+
+    @Test fun `wireless host accepts either formed P2P role once owner address exists`() {
+        val info = WifiP2pInfo()
+        assertFalse(PhoneWirelessHost.isReadyP2pGroup(info))
+        info.groupFormed = true
+        info.isGroupOwner = false
+        assertFalse(PhoneWirelessHost.isReadyP2pGroup(info))
+        info.groupOwnerAddress = java.net.InetAddress.getByName("192.168.49.1")
+        assertTrue(PhoneWirelessHost.isReadyP2pGroup(info))
+        info.isGroupOwner = true
+        assertTrue(PhoneWirelessHost.isReadyP2pGroup(info))
+    }
+
+    @Test fun `dashboard keeps connection and output mode on the main screen`() {
         val controller = Robolectric.buildActivity(Activity::class.java)
         controller.get().setTheme(R.style.AppTheme)
         val activity = controller.setup().get()
@@ -55,11 +88,97 @@ class CompanionUnitTest {
         )
 
         assertTrue(dashboard.root.findViewById<View>(R.id.connection_card) is MaterialCardView)
-        assertTrue(dashboard.root.findViewById<View>(R.id.metrics_card) is MaterialCardView)
-        assertTrue(dashboard.root.findViewById<View>(R.id.frame_card) is MaterialCardView)
-        assertTrue(dashboard.root.findViewById<View>(R.id.gesture_settings_card) is MaterialCardView)
-        assertTrue(dashboard.root.findViewById<View>(R.id.technical_card) is MaterialCardView)
+        assertTrue(dashboard.root.findViewById<View>(R.id.connection_mode_group) != null)
+        assertTrue(dashboard.root.findViewById<View>(R.id.connection_wired_action) != null)
+        assertTrue(dashboard.root.findViewById<View>(R.id.connection_wireless_action) != null)
+        assertTrue(dashboard.root.findViewById<View>(R.id.metrics_card) == null)
+        assertTrue(dashboard.root.findViewById<View>(R.id.frame_card) == null)
+        assertTrue(dashboard.root.findViewById<View>(R.id.gesture_settings_card) == null)
+        assertTrue(dashboard.root.findViewById<View>(R.id.technical_card) == null)
         assertTrue(dashboard.root.findViewById<View>(R.id.mode_external).contentDescription == null)
+        assertTrue(dashboard.root is androidx.drawerlayout.widget.DrawerLayout)
+        val navigation = dashboard.root.findViewById<com.google.android.material.navigation.NavigationView>(R.id.navigation_view)
+        assertEquals(listOf("Home", "Layout", "Gestures", "Technical details"),
+            (0 until navigation.menu.size()).map { navigation.menu.getItem(it).title.toString() })
+        assertTrue((0 until navigation.menu.size()).all { navigation.menu.getItem(it).icon == null })
+        assertTrue(navigation.menu.findItem(R.id.nav_home).isChecked)
+        val checkedTextColor = requireNotNull(navigation.itemTextColor).getColorForState(
+            intArrayOf(android.R.attr.state_checked),
+            Color.TRANSPARENT,
+        )
+        assertTrue(androidx.core.graphics.ColorUtils.calculateContrast(
+            checkedTextColor,
+            com.google.android.material.color.MaterialColors.getColor(
+                activity,
+                androidx.appcompat.R.attr.colorPrimary,
+                Color.TRANSPARENT,
+            ),
+        ) >= 4.5)
+        assertNotNull(navigation.itemBackground)
+        dashboard.root.openDrawer(androidx.core.view.GravityCompat.START)
+        assertTrue(dashboard.root.isDrawerOpen(androidx.core.view.GravityCompat.START))
+        navigation.menu.performIdentifierAction(R.id.nav_layout, 0)
+        assertFalse(dashboard.root.isDrawerOpen(androidx.core.view.GravityCompat.START))
+        assertTrue(navigation.menu.findItem(R.id.nav_home).isChecked)
+        assertFalse(navigation.menu.findItem(R.id.nav_layout).isChecked)
+        assertEquals(FramePlacementActivity::class.java.name,
+            org.robolectric.Shadows.shadowOf(activity).nextStartedActivity.component?.className)
+
+        dashboard.render(BridgeSnapshot())
+        val wiredMode = dashboard.root.findViewById<MaterialButton>(R.id.connection_wired_action)
+        val wirelessModeUnselected = dashboard.root.findViewById<MaterialButton>(R.id.connection_wireless_action)
+        assertEquals(
+            com.google.android.material.color.MaterialColors.getColor(
+                activity,
+                com.google.android.material.R.attr.colorSurfaceContainer,
+                Color.TRANSPARENT,
+            ),
+            dashboard.root.findViewById<MaterialCardView>(R.id.connection_card).cardBackgroundColor.defaultColor,
+        )
+        assertNotEquals(
+            dashboard.root.findViewById<MaterialCardView>(R.id.connection_card).cardBackgroundColor.defaultColor,
+            requireNotNull(wiredMode.backgroundTintList).defaultColor,
+        )
+        assertNotEquals(
+            requireNotNull(wiredMode.backgroundTintList).defaultColor,
+            requireNotNull(wirelessModeUnselected.backgroundTintList).defaultColor,
+        )
+        assertTrue(androidx.core.graphics.ColorUtils.calculateContrast(
+            wiredMode.currentTextColor,
+            requireNotNull(wiredMode.backgroundTintList).defaultColor,
+        ) >= 4.5)
+
+        val externalMode = dashboard.root.findViewById<MaterialButton>(R.id.mode_external)
+        val mirrorMode = dashboard.root.findViewById<MaterialButton>(R.id.mode_mirror)
+        assertNotEquals(
+            requireNotNull(externalMode.backgroundTintList).defaultColor,
+            requireNotNull(mirrorMode.backgroundTintList).defaultColor,
+        )
+        assertTrue(androidx.core.graphics.ColorUtils.calculateContrast(
+            externalMode.currentTextColor,
+            requireNotNull(externalMode.backgroundTintList).defaultColor,
+        ) >= 4.5)
+
+        dashboard.root.findViewById<MaterialButton>(R.id.connection_wireless_action).performClick()
+        dashboard.render(BridgeSnapshot(wirelessPaired = true))
+        val forget = dashboard.root.findViewById<MaterialButton>(R.id.wireless_forget_action)
+        assertEquals(View.VISIBLE, forget.visibility)
+        assertEquals(View.GONE, dashboard.root.findViewById<View>(R.id.wireless_pair_action).visibility)
+        assertTrue(androidx.core.graphics.ColorUtils.calculateContrast(
+            forget.currentTextColor,
+            requireNotNull(forget.backgroundTintList).defaultColor,
+        ) >= 4.5)
+
+        dashboard.render(BridgeSnapshot(
+            connection = ConnectionState.HANDSHAKING,
+            transport = "Wi-Fi Direct",
+            wirelessPaired = true,
+        ))
+        val wirelessMode = dashboard.root.findViewById<MaterialButton>(R.id.connection_wireless_action)
+        assertTrue(wirelessMode.isEnabled)
+        assertFalse(wirelessMode.isClickable)
+        assertEquals(1f, wirelessMode.alpha)
+        assertEquals(View.GONE, dashboard.root.findViewById<View>(R.id.wireless_forget_action).parent.let { it as View }.visibility)
 
         dashboard.render(BridgeSnapshot(
             connection = ConnectionState.ERROR,
@@ -73,13 +192,19 @@ class CompanionUnitTest {
             error = "Reconnect the USB cable",
         ))
         assertEquals(View.VISIBLE, dashboard.root.findViewById<View>(R.id.error_card).visibility)
-        val technical = dashboard.root.findViewById<android.widget.TextView>(R.id.technical_details).text.toString()
+        val technical = BridgeSnapshot(
+            connection = ConnectionState.ERROR,
+            mode = BridgeMode.SCREEN_MIRROR,
+            sentFrames = 100,
+            decodedFrames = 96,
+            droppedFrames = 4,
+        ).technicalText()
         assertTrue(technical.contains("SCREEN_MIRROR"))
         assertTrue(technical.contains("sent=100 decoded=96 dropped=4"))
         assertFalse(technical.contains("preview", true))
     }
 
-    @Test fun `dashboard removes duplicate branding and puts metrics under technical details`() {
+    @Test fun `dashboard removes configuration sections and prompt copy from main content`() {
         val controller = Robolectric.buildActivity(Activity::class.java)
         controller.get().setTheme(R.style.AppTheme)
         val activity = controller.setup().get()
@@ -90,13 +215,35 @@ class CompanionUnitTest {
             CompanionDashboard.Actions({}, {}, {}, {}, {}, framePlacement = { framePlacementRequests++ }),
         )
 
-        assertEquals("Display Bridge", dashboard.root.findViewById<android.widget.TextView>(R.id.header_title).text)
+        assertEquals("Display Bridge", dashboard.root.findViewById<com.google.android.material.appbar.MaterialToolbar>(R.id.header_title).title)
         assertFalse(allText(dashboard.root).any { it == "DB" || it.contains("Universal external display", true) })
-        val technical = dashboard.root.findViewById<View>(R.id.technical_card) as android.view.ViewGroup
-        assertTrue(isDescendant(technical, dashboard.root.findViewById(R.id.metrics_card)))
-        assertFalse(allText(dashboard.root).any { it == "Stop bridge mode" || it.contains("Video only", true) })
-        dashboard.root.findViewById<View>(R.id.frame_placement_action).performClick()
-        assertEquals(1, framePlacementRequests)
+        assertFalse(allText(dashboard.root).any {
+            it == "Stop bridge mode" || it.contains("Video only", true) ||
+                it.contains("never changes", true) || it.contains("No router", true)
+        })
+        assertFalse(allText(dashboard.root).any { it == "Frame placement" || it == "Glasses gestures" })
+        assertEquals(0, framePlacementRequests)
+    }
+
+    @Test fun `technical details is a drawer page with live diagnostics`() {
+        val controller = Robolectric.buildActivity(TechnicalDetailsActivity::class.java).setup()
+        val activity = controller.get()
+        val navigation = activity.findViewById<com.google.android.material.navigation.NavigationView>(R.id.navigation_view)
+        assertTrue(navigation.menu.findItem(R.id.nav_technical).isChecked)
+        assertTrue(allText(activity.findViewById(android.R.id.content)).any { it.contains("Connection :") })
+        controller.pause().stop().destroy()
+    }
+
+    @Test fun `home drawer destination finishes child page without launching another activity`() {
+        val controller = Robolectric.buildActivity(FramePlacementActivity::class.java).setup()
+        val activity = controller.get()
+        val navigation = activity.findViewById<com.google.android.material.navigation.NavigationView>(R.id.navigation_view)
+
+        navigation.menu.performIdentifierAction(R.id.nav_home, 0)
+
+        assertTrue(activity.isFinishing)
+        assertNull(org.robolectric.Shadows.shadowOf(activity).nextStartedActivity)
+        controller.destroy()
     }
 
     @Test fun `connection action is filled and changes to red disconnect when ready`() {
@@ -127,7 +274,7 @@ class CompanionUnitTest {
         assertEquals(1, disconnects)
     }
 
-    @Test fun `dashboard consumes system bars as root padding`() {
+    @Test fun `dashboard applies system bars around toolbar and page content`() {
         val controller = Robolectric.buildActivity(Activity::class.java)
         controller.get().setTheme(R.style.AppTheme)
         val activity = controller.setup().get()
@@ -141,10 +288,17 @@ class CompanionUnitTest {
             dashboard.root,
             WindowInsetsCompat.Builder().setInsets(WindowInsetsCompat.Type.systemBars(), bars).build(),
         )
-        assertEquals(bars.left, dashboard.root.paddingLeft)
-        assertEquals(bars.top, dashboard.root.paddingTop)
-        assertEquals(bars.right, dashboard.root.paddingRight)
-        assertEquals(bars.bottom, dashboard.root.paddingBottom)
+        val toolbar = dashboard.root.findViewById<View>(R.id.header_title)
+        val scroll = (toolbar.parent as ViewGroup).getChildAt(1)
+        val navigation = dashboard.root.findViewById<com.google.android.material.navigation.NavigationView>(R.id.navigation_view)
+        val drawerHeader = navigation.getHeaderView(0)
+        assertEquals(bars.top, toolbar.paddingTop)
+        assertEquals(bars.left, scroll.paddingLeft)
+        assertEquals(bars.right, scroll.paddingRight)
+        assertEquals(bars.bottom, scroll.paddingBottom)
+        assertEquals((28 * activity.resources.displayMetrics.density).toInt() + bars.top, drawerHeader.paddingTop)
+        assertEquals((24 * activity.resources.displayMetrics.density).toInt() + bars.left, drawerHeader.paddingLeft)
+        assertEquals(bars.bottom, navigation.paddingBottom)
     }
 
     @Test fun `bridge package and foreground service declarations include startup prerequisites`() {
@@ -158,7 +312,12 @@ class CompanionUnitTest {
         assertTrue(service.name.startsWith("com.azhilin.rokid.displaybridge.companion"))
         assertTrue(service.foregroundServiceType and ServiceInfo.FOREGROUND_SERVICE_TYPE_CONNECTED_DEVICE != 0)
         assertTrue(service.foregroundServiceType and ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PROJECTION != 0)
-        assertTrue(requireNotNull(info.requestedPermissions).contains("android.permission.CHANGE_NETWORK_STATE"))
+        val permissions = requireNotNull(info.requestedPermissions).toSet()
+        assertTrue("android.permission.CHANGE_NETWORK_STATE" in permissions)
+        assertTrue("android.permission.INTERNET" in permissions)
+        assertTrue("android.permission.ACCESS_WIFI_STATE" in permissions)
+        assertTrue("android.permission.CHANGE_WIFI_STATE" in permissions)
+        assertTrue("android.permission.NEARBY_WIFI_DEVICES" in permissions)
     }
 
     @Test fun `AOA identity is stable and application neutral`() {
@@ -209,6 +368,47 @@ class CompanionUnitTest {
         assertFalse(gate.consumeReady(BridgeMode.IDLE))
         gate.onCompanionVisible(BridgeMode.SCREEN_MIRROR)
         assertFalse(gate.consumeReady(BridgeMode.SCREEN_MIRROR))
+    }
+
+    @Test fun `preferred output mode persists and defaults safely`() {
+        val context = ApplicationProvider.getApplicationContext<android.content.Context>()
+        context.getSharedPreferences("display_bridge_output_mode_v1", android.content.Context.MODE_PRIVATE)
+            .edit().clear().commit()
+        val store = PreferredOutputModeStore(context)
+        assertEquals(PreferredOutputMode.EXTERNAL_DISPLAY, store.load())
+        store.save(PreferredOutputMode.SCREEN_MIRROR)
+        assertEquals(PreferredOutputMode.SCREEN_MIRROR, PreferredOutputModeStore(context).load())
+        assertEquals(BridgeMode.SCREEN_MIRROR, store.load().bridgeMode)
+    }
+
+    @Test fun `preferred screen mirror prompts once on each ready edge`() {
+        val readyIdle = BridgeSnapshot(connection = ConnectionState.READY, mode = BridgeMode.IDLE)
+        assertTrue(shouldRequestPreferredScreenMirror(false, readyIdle, PreferredOutputMode.SCREEN_MIRROR))
+        assertFalse(shouldRequestPreferredScreenMirror(true, readyIdle, PreferredOutputMode.SCREEN_MIRROR))
+        assertFalse(shouldRequestPreferredScreenMirror(false, readyIdle, PreferredOutputMode.EXTERNAL_DISPLAY))
+        assertFalse(shouldRequestPreferredScreenMirror(
+            false,
+            readyIdle.copy(mode = BridgeMode.SCREEN_MIRROR),
+            PreferredOutputMode.SCREEN_MIRROR,
+        ))
+    }
+
+    @Test fun `dashboard shows preferred output while disconnected`() {
+        val controller = Robolectric.buildActivity(Activity::class.java)
+        controller.get().setTheme(R.style.AppTheme)
+        val activity = controller.setup().get()
+        val dashboard = CompanionDashboard(
+            activity,
+            DisplayLayoutStore(activity),
+            CompanionDashboard.Actions({}, {}, {}, {}, {}),
+            preferredOutputMode = PreferredOutputMode.SCREEN_MIRROR,
+        )
+        dashboard.render(BridgeSnapshot())
+        val external = dashboard.root.findViewById<MaterialButton>(R.id.mode_external)
+        val mirror = dashboard.root.findViewById<MaterialButton>(R.id.mode_mirror)
+        assertTrue(mirror.strokeWidth > external.strokeWidth)
+        dashboard.setPreferredOutputMode(PreferredOutputMode.EXTERNAL_DISPLAY)
+        assertTrue(external.strokeWidth > mirror.strokeWidth)
     }
 
     @Test fun `automatic attempt survives permission UI pause but not an idle hidden companion`() {

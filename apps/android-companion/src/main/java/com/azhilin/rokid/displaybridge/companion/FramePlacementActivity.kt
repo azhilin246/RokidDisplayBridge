@@ -11,17 +11,13 @@ import android.widget.ScrollView
 import android.widget.TextView
 import java.io.Closeable
 import androidx.appcompat.app.AppCompatActivity
-import androidx.core.graphics.Insets
 import androidx.core.content.ContextCompat
 import androidx.core.view.ViewCompat
-import androidx.core.view.WindowCompat
-import androidx.core.view.WindowInsetsCompat
 import androidx.recyclerview.widget.ItemTouchHelper
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
 import com.azhilin.rokid.displaybridge.protocol.DisplayLayoutPayload
 import com.azhilin.rokid.displaybridge.companion.service.BridgeService
-import com.google.android.material.appbar.MaterialToolbar
 import com.google.android.material.button.MaterialButton
 import com.google.android.material.card.MaterialCardView
 import com.google.android.material.color.DynamicColors
@@ -46,7 +42,6 @@ class FramePlacementActivity : AppCompatActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         DynamicColors.applyToActivityIfAvailable(this)
-        WindowCompat.setDecorFitsSystemWindows(window, false)
         layoutStore = DisplayLayoutStore(this)
         favoritesStore = FramePlacementFavoritesStore(this)
         setContentView(buildContent())
@@ -76,19 +71,6 @@ class FramePlacementActivity : AppCompatActivity() {
     }
 
     private fun buildContent(): View {
-        val surface = MaterialColors.getColor(this, com.google.android.material.R.attr.colorSurface, 0xFFFFFBFE.toInt())
-        val root = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            setBackgroundColor(surface)
-        }
-        val toolbar = MaterialToolbar(this).apply {
-            title = "Frame Placement"
-            setNavigationIcon(androidx.appcompat.R.drawable.abc_ic_ab_back_material)
-            navigationContentDescription = "Back"
-            setNavigationOnClickListener { finish() }
-        }
-        root.addView(toolbar, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
-
         val content = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             setPadding(dp(16), dp(8), dp(16), dp(28))
@@ -97,8 +79,6 @@ class FramePlacementActivity : AppCompatActivity() {
             isFillViewport = true
             addView(content, ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
         }
-        root.addView(scroll, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f))
-        applySystemInsets(root, toolbar, scroll)
 
         content.addView(body("Drag within the viewport to position. Horizontal edges stay inside the glasses; vertically, at least 10% remains visible. Drag a corner to resize."))
         stage = FramePlacementStage(this)
@@ -110,17 +90,16 @@ class FramePlacementActivity : AppCompatActivity() {
 
         previewToggle = MaterialSwitch(this).apply {
             id = R.id.preview_content_toggle
-            text = "Preview Content"
+            text = "Preview"
             isChecked = false
             setOnCheckedChangeListener { _, checked ->
                 if (checked) enablePreview() else disablePreview()
             }
         }
         content.addView(previewToggle, margin(bottom = 8))
-        content.addView(body("Low-rate, latest-frame-only preview. It never changes bridge bitrate or video transport."), margin(bottom = 12))
         content.addView(MaterialButton(this, null, com.google.android.material.R.attr.materialButtonOutlinedStyle).apply {
             id = R.id.reset_frame_action
-            text = "Reset Frame"
+            text = "Reset"
             isAllCaps = false
             setOnClickListener {
                 val reset = DisplayLayoutEditorModel.reset()
@@ -131,10 +110,18 @@ class FramePlacementActivity : AppCompatActivity() {
         }, margin(bottom = 28))
 
         content.addView(heading("Favorites"), margin(bottom = 8))
+        content.addView(MaterialButton(this, null, com.google.android.material.R.attr.materialButtonOutlinedStyle).apply {
+            id = R.id.add_favorite_action
+            text = "Add"
+            isAllCaps = false
+            minHeight = dp(52)
+            setOnClickListener { showFavoriteDialog() }
+        }, margin(bottom = 8))
         favoritesEmpty = body("No favorites saved yet.").apply { visibility = View.GONE }
         content.addView(favoritesEmpty, margin(bottom = 8))
         favoritesAdapter = FrameFavoriteAdapter(
             onApply = ::applyFavorite,
+            onEdit = { favorite -> showFavoriteDialog(favorite) },
             onDelete = { favorite -> favoritesStore.delete(favorite.id); renderFavorites() },
             onDragStart = { holder -> favoriteTouchHelper.startDrag(holder) },
         )
@@ -166,21 +153,14 @@ class FramePlacementActivity : AppCompatActivity() {
             override fun onSwiped(viewHolder: RecyclerView.ViewHolder, direction: Int) = Unit
         }).also { it.attachToRecyclerView(favoritesRecycler) }
         content.addView(favoritesRecycler)
-        content.addView(MaterialButton(this, null, com.google.android.material.R.attr.materialButtonOutlinedStyle).apply {
-            id = R.id.add_favorite_action
-            text = "Add"
-            isAllCaps = false
-            minHeight = dp(52)
-            setOnClickListener { showAddFavoriteDialog() }
-        }, margin(top = 2, bottom = 8))
-        return root
+        return companionPage(this, CompanionPage.LAYOUT, "Layout", scroll).root
     }
 
     private fun renderFavorites() {
         val favorites = favoritesStore.load()
         favoritesEmpty.visibility = if (favorites.isEmpty()) View.VISIBLE else View.GONE
         favoritesRecycler.visibility = if (favorites.isEmpty()) View.GONE else View.VISIBLE
-        favoritesAdapter.submitList(favorites)
+        favoritesAdapter.submitList(favorites, layoutStore.load())
     }
 
     private fun applyFavorite(favorite: FramePlacementFavorite) {
@@ -189,9 +169,18 @@ class FramePlacementActivity : AppCompatActivity() {
         applyLayout(favorite.layout)
     }
 
-    private fun showAddFavoriteDialog() {
-        val current = stage.editor.value.clamped()
-        val nameLayout = inputField("Name", "", InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_FLAG_CAP_SENTENCES)
+    private fun showFavoriteDialog(existing: FramePlacementFavorite? = null) {
+        val current = existing?.layout ?: stage.editor.value.clamped()
+        val nameLayout = inputField(
+            "Name",
+            existing?.name.orEmpty(),
+            InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_FLAG_CAP_SENTENCES,
+        )
+        val scaleLayout = inputField(
+            "Scale (250…1000)",
+            current.scalePermille.toString(),
+            InputType.TYPE_CLASS_NUMBER,
+        )
         val xLayout = inputField(
             "X (−1000…1000)",
             current.offsetXPermille.toString(),
@@ -208,24 +197,31 @@ class FramePlacementActivity : AppCompatActivity() {
             orientation = LinearLayout.VERTICAL
             setPadding(dp(24), dp(8), dp(24), 0)
             addView(nameLayout, margin(bottom = 8))
+            addView(scaleLayout, margin(bottom = 8))
             addView(xLayout, margin(bottom = 8))
             addView(yLayout)
         }
         val dialog = MaterialAlertDialogBuilder(this)
-            .setTitle("Add favorite")
+            .setTitle(if (existing == null) "Add favorite" else "Edit favorite")
             .setView(form)
             .setNegativeButton("Cancel", null)
-            .setPositiveButton("Add", null)
+            .setPositiveButton(if (existing == null) "Add" else "Save", null)
             .create()
         dialog.setOnShowListener {
             dialog.getButton(android.app.AlertDialog.BUTTON_POSITIVE).setOnClickListener {
                 val name = editText(nameLayout).text?.toString().orEmpty().trim()
+                val scale = parseScale(scaleLayout)
                 val x = parseOffset(xLayout)
                 val y = parseOffset(yLayout)
                 nameLayout.error = if (name.isEmpty()) "Enter a name" else null
-                if (name.isEmpty() || x == null || y == null) return@setOnClickListener
-                val layout = current.copy(offsetXPermille = x.toShort(), offsetYPermille = y.toShort()).clamped()
-                val favorite = favoritesStore.add(name, layout)
+                if (name.isEmpty() || scale == null || x == null || y == null) return@setOnClickListener
+                val layout = current.copy(
+                    scalePermille = scale.toUShort(),
+                    offsetXPermille = x.toShort(),
+                    offsetYPermille = y.toShort(),
+                ).clamped()
+                val favorite = if (existing == null) favoritesStore.add(name, layout)
+                else favoritesStore.update(existing.id, name, layout) ?: return@setOnClickListener
                 applyFavorite(favorite)
                 renderFavorites()
                 dialog.dismiss()
@@ -255,9 +251,18 @@ class FramePlacementActivity : AppCompatActivity() {
         return value?.takeIf { it in -1_000..1_000 }
     }
 
+    private fun parseScale(layout: TextInputLayout): Int? {
+        val value = editText(layout).text?.toString()?.toIntOrNull()
+        layout.error = if (value == null || value !in DisplayLayoutPayload.MIN_SCALE_PERMILLE..DisplayLayoutPayload.MAX_SCALE_PERMILLE) {
+            "Enter a value from 250 to 1000"
+        } else null
+        return value?.takeIf { it in DisplayLayoutPayload.MIN_SCALE_PERMILLE..DisplayLayoutPayload.MAX_SCALE_PERMILLE }
+    }
+
     private fun applyLayout(value: DisplayLayoutPayload) {
         val effective = value.clamped()
         layoutStore.save(effective)
+        favoritesAdapter.setCurrentLayout(effective)
         BridgeRuntime.submitDisplayLayout(effective)
     }
 
@@ -277,17 +282,6 @@ class FramePlacementActivity : AppCompatActivity() {
         previewDecoder = decoder
         previewSubscription = BridgePreviewFrames.subscribe(decoder.updateListener)
         BridgePreviewFrames.setEnabled(true)
-    }
-
-    private fun applySystemInsets(root: View, toolbar: View, scroll: View) {
-        ViewCompat.setOnApplyWindowInsetsListener(root) { _, windowInsets ->
-            val bars = windowInsets.getInsets(WindowInsetsCompat.Type.systemBars())
-            toolbar.setPadding(toolbar.paddingLeft, bars.top, toolbar.paddingRight, toolbar.paddingBottom)
-            scroll.setPadding(bars.left, scroll.paddingTop, bars.right, bars.bottom)
-            WindowInsetsCompat.Builder(windowInsets)
-                .setInsets(WindowInsetsCompat.Type.systemBars(), Insets.NONE)
-                .build()
-        }
     }
 
     private fun heading(text: String) = TextView(this).apply {

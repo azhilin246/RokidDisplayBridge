@@ -2,6 +2,14 @@
 
 DBP1 is the private, video-only protocol used between the Display Bridge companion and glasses applications.
 
+## Wireless pre-handshake
+
+USB/AOA begins directly with DBP1. A wireless TCP connection first uses the bounded `RDBW` version-2 pre-handshake, then carries DBP1 only in encrypted authenticated records after pairing or reconnect authentication succeeds.
+
+Initial pairing is explicit trust on first use. It exchanges fresh P-256 public keys, 16-byte installation identifiers, and 16-byte nonces. Both sides derive the same transcript-bound key and exchange confirmation tags automatically before deriving a persistent 32-byte peer key.
+
+Later wireless connections exchange fresh nonces and mutual HMAC-SHA-256 proofs against that peer key. Both handshake variants derive independent AES-256-GCM keys and four-byte nonce prefixes for each direction. Each wireless record contains marker `RDBE`, an eight-byte monotonically increasing sequence number, a four-byte ciphertext length, and one complete encrypted DBP1 frame plus its 16-byte GCM tag. The header is authenticated as AAD. Unknown identities, invalid proofs or tags, replay/reordering, oversized messages, timeout, or double tap close the candidate connection before a DBP1 frame is accepted.
+
 ## Framing and bounds
 
 Every frame begins with the ASCII magic `DBP1`, protocol version 1.1, a message type, flags, request id, and unsigned payload length. Version 1.1 adds display-layout and phone media-key control messages; both APKs must be updated together. The decoder rejects invalid magic, versions, types, and payloads larger than 65,536 bytes before allocating message storage.

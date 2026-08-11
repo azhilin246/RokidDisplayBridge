@@ -39,7 +39,7 @@ class DisplayLayoutEditorView(context: Context) : View(context) {
 
     init {
         setBackgroundColor(Color.TRANSPARENT)
-        contentDescription = "Glasses frame placement editor"
+        contentDescription = "Glasses layout editor"
     }
 
     fun setLayoutValue(next: DisplayLayoutPayload) {

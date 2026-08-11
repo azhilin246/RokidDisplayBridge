@@ -26,8 +26,12 @@ class GestureSettingsTest {
         assertTrue(text.any { it.contains("playlist item") })
         assertTrue(text.any { it.contains("frame favorite") })
         assertTrue(text.any { it.contains("Reverse swipe") })
-        assertTrue(text.any { it.contains("Confirm exits") })
+        assertTrue(text.any { it.contains("Double tap exits Display Bridge") })
+        assertFalse(text.any { it.contains("wireless pairing", true) })
+        assertFalse(text.any { it.contains("main screen", true) })
         assertTrue(activity.findViewById<android.view.View>(R.id.save_gesture_settings_action) != null)
+        assertTrue(activity.findViewById<com.google.android.material.navigation.NavigationView>(R.id.navigation_view)
+            .menu.findItem(R.id.nav_gestures).isChecked)
         assertTrue(text.indexOfFirst { it == "Tap" } < text.indexOfFirst { it == "Double tap" })
         assertTrue(text.indexOfFirst { it == "Double tap" } < text.indexOfFirst { it == "Swipes" })
         assertTrue(text.indexOfFirst { it == "Swipes" } < text.indexOfFirst { it == "Swipe action" })
@@ -54,11 +58,19 @@ class GestureSettingsTest {
         store.save(CompanionGestureSettings(policy, setOf(2L)))
 
         val restored = store.load()
-        assertEquals(policy, restored.policy)
+        assertEquals(policy.copy(doubleTapAction = DoubleTapGestureAction.EXIT_APP, confirmExitWithSecondDoubleTap = false), restored.policy)
         assertEquals(setOf(2L), restored.disabledFavoriteIds)
         val favorites = listOf(favorite(1), favorite(2), favorite(3))
         assertEquals(listOf(1L, 3L), enabledGestureFavorites(favorites, restored.disabledFavoriteIds).map { it.id })
         assertTrue(3L !in restored.disabledFavoriteIds)
+    }
+
+    @Test fun `legacy main menu gesture migrates to direct application exit`() {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        context.getSharedPreferences("display_bridge_gesture_settings_v1", Context.MODE_PRIVATE)
+            .edit().clear().putString("double_tap_action", DoubleTapGestureAction.MAIN_MENU.name).commit()
+
+        assertEquals(DoubleTapGestureAction.EXIT_APP, GestureSettingsStore(context).load().policy.doubleTapAction)
     }
 
     @Test fun `favorite cycling follows current order wraps and starts predictably`() {

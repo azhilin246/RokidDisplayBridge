@@ -48,6 +48,10 @@ class PresentationDisplayController(context: Context, surface: Surface, densityD
         )
     }
 
+    fun replaceSurface(surface: Surface?) {
+        virtualDisplay.surface = surface
+    }
+
     override fun close() = virtualDisplay.release()
 
     companion object {
