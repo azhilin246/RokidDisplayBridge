@@ -4,7 +4,13 @@ Display Bridge turns Rokid Glasses into a low-latency, video-only Android displa
 
 > **Independent project:** Display Bridge is not affiliated with, endorsed by, or an official product of Rokid Corporation. Rokid and related product names are trademarks of their respective owners.
 
-> **MVP status:** `v0.3.1` is the current release-signed build and fixes Wired selection after using Wireless mode. The core External Display and Screen Mirror paths work on the target Pixel/RG_glasses pair, while several long-run and physical-input acceptance checks remain documented as pending.
+> **MVP status:** `v0.3.2` is the current release-signed build and fixes Wi-Fi Direct coexistence with Hi Rokid and other applications. The core External Display and Screen Mirror paths work on the target Pixel/RG_glasses pair, while several long-run and physical-input acceptance checks remain documented as pending.
+
+## Video demo
+
+[![Watch the Rokid Display Bridge video demo](docs/media/display-bridge-demo.jpg)](https://github.com/azhilin246/RokidDisplayBridge/releases/download/v0.3.2/rokid-display-bridge-demo.mp4)
+
+[▶ Watch the four-minute demo](https://github.com/azhilin246/RokidDisplayBridge/releases/download/v0.3.2/rokid-display-bridge-demo.mp4) — External Display, Screen Mirror, wireless connection, and layout controls. The demo has no audio track.
 
 ## Features
 
