@@ -51,6 +51,7 @@ class PhoneWirelessHost(
     @Volatile private var pairing = false
     @Volatile private var receiverRegistered = false
     @Volatile private var groupCreated = false
+    @Volatile private var groupAuthenticated = false
     @Volatile private var transportEstablished = false
     @Volatile private var serverSocket: ServerSocket? = null
     @Volatile private var candidateSocket: Socket? = null
@@ -102,6 +103,7 @@ class PhoneWirelessHost(
         this.pairing = pairing
         running.set(true)
         transportEstablished = false
+        groupAuthenticated = false
         connectionInfoAttempts = 0
         registerReceiver()
         listener.onWirelessState(WirelessStage.DISCOVERING, if (pairing) "Preparing wireless pairing" else "Preparing wireless reconnect")
@@ -112,32 +114,10 @@ class PhoneWirelessHost(
     private fun prepareExistingGroupOrActivate() {
         manager.requestConnectionInfo(channel) { info ->
             if (!running.get()) return@requestConnectionInfo
-            when {
-                info?.groupFormed == true -> {
-                    groupCreated = true
-                    listener.onWirelessState(WirelessStage.GROUP_FORMING, "Resetting stale Wi-Fi Direct group")
-                    resetExistingGroup()
-                }
-                else -> activateP2p()
-            }
+            if (info?.groupFormed == true) {
+                fail("Wi-Fi Direct is already in use by another app; stop it and retry")
+            } else activateP2p()
         }
-    }
-
-    @SuppressLint("MissingPermission") // start() performs the version-aware runtime permission check.
-    private fun resetExistingGroup(attempt: Int = 0) {
-        if (!running.get()) return
-        manager.removeGroup(channel, object : Action("reset stale Wi-Fi Direct group") {
-            override fun onSuccess() {
-                groupCreated = false
-                activateP2p()
-            }
-
-            override fun onFailure(reason: Int) {
-                if (!retryBusy(reason, attempt, "stale group reset") {
-                        resetExistingGroup(attempt + 1)
-                    }) super.onFailure(reason)
-            }
-        })
     }
 
     @SuppressLint("MissingPermission") // start() performs the version-aware runtime permission check.
@@ -256,6 +236,10 @@ class PhoneWirelessHost(
                 socket.getInputStream(), socket.getOutputStream(), trustStore.localInstallationId(), peer,
             )
         }
+        // A successful authenticated handshake is the first point where the phone can
+        // prove that the active framework group belongs to Display Bridge. Never let a
+        // generic Wi-Fi Direct broadcast grant cleanup ownership of another app's group.
+        groupAuthenticated = true
         socket.soTimeout = 1_000
         candidateSocket = null
         serverSocket?.close(); serverSocket = null
@@ -356,10 +340,11 @@ class PhoneWirelessHost(
         if (removeGroup) {
             runCatching { manager.clearLocalServices(channel, object : Action("clear wireless service", reportFailure = false) {}) }
         }
-        if (removeGroup && groupCreated) {
+        if (shouldRemoveGroup(removeGroup, groupAuthenticated)) {
             runCatching { manager.removeGroup(channel, object : Action("remove Wi-Fi Direct group", reportFailure = false) {}) }
         }
         groupCreated = false
+        groupAuthenticated = false
     }
 
     private fun registerReceiver() {
@@ -427,6 +412,9 @@ class PhoneWirelessHost(
 
         fun shouldRefreshDiscovery(running: Boolean, groupCreated: Boolean, transportEstablished: Boolean): Boolean =
             running && !groupCreated && !transportEstablished
+
+        fun shouldRemoveGroup(removeRequested: Boolean, groupAuthenticated: Boolean): Boolean =
+            removeRequested && groupAuthenticated
     }
 }
 

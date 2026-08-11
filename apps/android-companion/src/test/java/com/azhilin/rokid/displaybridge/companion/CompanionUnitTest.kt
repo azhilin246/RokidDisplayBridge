@@ -65,6 +65,12 @@ class CompanionUnitTest {
         assertFalse(PhoneWirelessHost.shouldRefreshDiscovery(true, false, true))
     }
 
+    @Test fun `wireless host never removes a group before peer authentication`() {
+        assertFalse(PhoneWirelessHost.shouldRemoveGroup(removeRequested = true, groupAuthenticated = false))
+        assertFalse(PhoneWirelessHost.shouldRemoveGroup(removeRequested = false, groupAuthenticated = true))
+        assertTrue(PhoneWirelessHost.shouldRemoveGroup(removeRequested = true, groupAuthenticated = true))
+    }
+
     @Test fun `wireless host accepts either formed P2P role once owner address exists`() {
         val info = WifiP2pInfo()
         assertFalse(PhoneWirelessHost.isReadyP2pGroup(info))

@@ -2,6 +2,17 @@
 
 All notable project changes are documented here.
 
+## [0.3.2] - 2026-08-11
+
+Wi-Fi Direct coexistence hotfix.
+
+### Fixed
+
+- Display Bridge no longer adopts or removes Wi-Fi Direct groups created by Hi Rokid or other applications.
+- Existing Wi-Fi Direct sessions are left untouched and reported as busy instead of being reset during bridge startup.
+- The glasses verify that the connected group contains the phone discovered through the Display Bridge DNS-SD service before opening TCP or allowing cleanup.
+- New Display Bridge groups use non-persistent Wi-Fi Direct configuration on Android 10 and newer, preventing saved-group pollution.
+
 ## [0.3.1] - 2026-08-11
 
 Wired connection selection hotfix.

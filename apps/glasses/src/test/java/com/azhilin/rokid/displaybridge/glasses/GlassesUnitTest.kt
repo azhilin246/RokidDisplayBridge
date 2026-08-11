@@ -67,6 +67,16 @@ class GlassesUnitTest {
         assertFalse(GlassesWirelessClient.shouldRefreshDiscovery(true, false, false, true))
     }
 
+    @Test fun `wireless client accepts and removes only the discovered Display Bridge peer group`() {
+        val expected = "02:11:22:33:44:55"
+        assertTrue(GlassesWirelessClient.containsExpectedPeer(expected, emptyList(), expected.uppercase()))
+        assertTrue(GlassesWirelessClient.containsExpectedPeer("02:aa:bb:cc:dd:ee", listOf(expected), expected))
+        assertFalse(GlassesWirelessClient.containsExpectedPeer("02:aa:bb:cc:dd:ee", emptyList(), expected))
+        assertFalse(GlassesWirelessClient.containsExpectedPeer(expected, emptyList(), null))
+        assertFalse(GlassesWirelessClient.shouldRemoveGroup(removeRequested = true, bridgeGroup = false))
+        assertTrue(GlassesWirelessClient.shouldRemoveGroup(removeRequested = true, bridgeGroup = true))
+    }
+
     @Test fun `glasses state surface is pure black with one state label and video overlay stays translucent`() {
         val activity = Robolectric.buildActivity(Activity::class.java).setup().get()
         val ui = GlassesUi(activity, {}, {})

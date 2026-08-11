@@ -10,8 +10,8 @@ android {
         applicationId = "com.azhilin.rokid.displaybridge.companion"
         minSdk = 28
         targetSdk = 36
-        versionCode = 7
-        versionName = "0.3.1"
+        versionCode = 8
+        versionName = "0.3.2"
     }
 
     buildFeatures {

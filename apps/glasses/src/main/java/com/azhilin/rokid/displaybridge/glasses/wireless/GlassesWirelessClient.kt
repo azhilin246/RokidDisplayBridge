@@ -7,6 +7,7 @@ import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
 import android.content.pm.PackageManager
+import android.net.MacAddress
 import android.net.ConnectivityManager
 import android.net.NetworkInfo
 import android.net.wifi.WpsInfo
@@ -53,6 +54,7 @@ class GlassesWirelessClient(
     @Volatile private var receiverRegistered = false
     @Volatile private var connectedGroup = false
     @Volatile private var joiningGroup = false
+    @Volatile private var bridgeGroup = false
     @Volatile private var transportEstablished = false
     @Volatile private var matchingDevice: WifiP2pDevice? = null
     @Volatile private var serverSocket: ServerSocket? = null
@@ -75,10 +77,8 @@ class GlassesWirelessClient(
                 WifiP2pManager.WIFI_P2P_CONNECTION_CHANGED_ACTION -> {
                     @Suppress("DEPRECATION")
                     val network = intent.getParcelableExtra(WifiP2pManager.EXTRA_NETWORK_INFO) as? NetworkInfo
-                    if (network?.isConnected == true && running.get()) {
-                        joiningGroup = false
-                        connectedGroup = true
-                        manager.requestConnectionInfo(channel, ::onConnectionInfo)
+                    if (network?.isConnected == true && running.get() && (joiningGroup || bridgeGroup)) {
+                        verifyJoinedGroup()
                     } else if (running.get() && !transportEstablished && (connectedGroup || joiningGroup)) {
                         connectedGroup = false
                         joiningGroup = false
@@ -115,6 +115,7 @@ class GlassesWirelessClient(
         this.pairing = pairing
         running.set(true)
         transportEstablished = false
+        bridgeGroup = false
         registerReceiver()
         listener.onWirelessState(GlassesWirelessStage.DISCOVERING, if (pairing) "Searching for phone pairing service" else "Searching for paired phone")
         prepareExistingGroupOrDiscovery()
@@ -125,28 +126,9 @@ class GlassesWirelessClient(
         manager.requestConnectionInfo(channel) { info ->
             if (!running.get()) return@requestConnectionInfo
             if (info?.groupFormed == true) {
-                connectedGroup = true
-                listener.onWirelessState(GlassesWirelessStage.GROUP_FORMING, "Resetting stale Wi-Fi Direct group")
-                resetExistingGroup()
+                fail("Wi-Fi Direct is already in use by another app; stop it and retry")
             } else beginDiscovery()
         }
-    }
-
-    @SuppressLint("MissingPermission") // start() performs the version-aware runtime permission check.
-    private fun resetExistingGroup(attempt: Int = 0) {
-        if (!running.get()) return
-        manager.removeGroup(channel, object : Action("reset stale Wi-Fi Direct group") {
-            override fun onSuccess() {
-                connectedGroup = false
-                beginDiscovery()
-            }
-
-            override fun onFailure(reason: Int) {
-                if (!retryBusy(reason, attempt, "stale group reset") {
-                        resetExistingGroup(attempt + 1)
-                    }) super.onFailure(reason)
-            }
-        })
     }
 
     @SuppressLint("MissingPermission") // start() performs the version-aware runtime permission check.
@@ -241,16 +223,39 @@ class GlassesWirelessClient(
         )
         retryHandler.postDelayed({
             if (!running.get() || connectedGroup || worker?.isAlive == true) return@postDelayed
-            manager.requestConnectionInfo(channel) { info ->
-                if (!running.get() || connectedGroup || worker?.isAlive == true) return@requestConnectionInfo
-                if (info?.groupFormed == true) {
-                    connectedGroup = true
-                    joiningGroup = false
-                    onConnectionInfo(info)
-                } else retry()
-            }
+            joiningGroup = true
+            verifyJoinedGroup(onNoGroup = {
+                joiningGroup = false
+                retry()
+            })
         }, GROUP_JOIN_RETRY_DELAY_MS)
         return true
+    }
+
+    @SuppressLint("MissingPermission") // Only reachable after start() accepts the runtime permission.
+    private fun verifyJoinedGroup(onNoGroup: (() -> Unit)? = null) {
+        manager.requestGroupInfo(channel) { group ->
+            if (!running.get() || worker?.isAlive == true) return@requestGroupInfo
+            if (group == null) {
+                onNoGroup?.invoke() ?: run {
+                    joiningGroup = false
+                    scheduleDiscoveryRefresh(DISCOVERY_RESTART_DELAY_MS)
+                }
+                return@requestGroupInfo
+            }
+            val expectedAddress = matchingDevice?.deviceAddress
+            val ownerAddress = group.owner?.deviceAddress
+            val clientAddresses = group.clientList.mapNotNull { it.deviceAddress }
+            if (!containsExpectedPeer(ownerAddress, clientAddresses, expectedAddress)) {
+                joiningGroup = false
+                fail("Another app owns the active Wi-Fi Direct group")
+                return@requestGroupInfo
+            }
+            bridgeGroup = true
+            connectedGroup = true
+            joiningGroup = false
+            manager.requestConnectionInfo(channel, ::onConnectionInfo)
+        }
     }
 
     private fun retryBusy(reason: Int, attempt: Int, stage: String, retry: () -> Unit): Boolean {
@@ -261,7 +266,7 @@ class GlassesWirelessClient(
     }
 
     private fun onConnectionInfo(info: WifiP2pInfo?) {
-        if (!running.get() || info?.groupFormed != true || worker?.isAlive == true) return
+        if (!running.get() || !bridgeGroup || info?.groupFormed != true || worker?.isAlive == true) return
         retryHandler.removeCallbacks(discoveryRefresh)
         val address = info.groupOwnerAddress ?: return fail("Wi-Fi Direct phone address is missing")
         val hostAddress = address.hostAddress ?: address.hostName
@@ -395,9 +400,12 @@ class GlassesWirelessClient(
             runCatching { manager.clearServiceRequests(channel, object : Action("clear wireless discovery", false) {}) }
             runCatching { manager.cancelConnect(channel, object : Action("cancel wireless connect", false) {}) }
         }
-        if (removeGroup && connectedGroup) runCatching { manager.removeGroup(channel, object : Action("leave wireless group", false) {}) }
+        if (shouldRemoveGroup(removeGroup, bridgeGroup)) {
+            runCatching { manager.removeGroup(channel, object : Action("leave wireless group", false) {}) }
+        }
         connectedGroup = false
         joiningGroup = false
+        bridgeGroup = false
         matchingDevice = null
     }
 
@@ -421,6 +429,12 @@ class GlassesWirelessClient(
     }
 
     private fun createClientConfig(device: WifiP2pDevice): WifiP2pConfig {
+        if (Build.VERSION.SDK_INT >= 29) {
+            return WifiP2pConfig.Builder()
+                .setDeviceAddress(MacAddress.fromString(device.deviceAddress))
+                .enablePersistentMode(false)
+                .build()
+        }
         @Suppress("DEPRECATION")
         return WifiP2pConfig().apply {
             deviceAddress = device.deviceAddress
@@ -505,6 +519,17 @@ class GlassesWirelessClient(
             joiningGroup: Boolean,
             transportEstablished: Boolean,
         ): Boolean = running && !connectedGroup && !joiningGroup && !transportEstablished
+
+        fun containsExpectedPeer(
+            ownerAddress: String?,
+            clientAddresses: Collection<String>,
+            expectedAddress: String?,
+        ): Boolean = expectedAddress != null &&
+            (ownerAddress.equals(expectedAddress, ignoreCase = true) ||
+                clientAddresses.any { it.equals(expectedAddress, ignoreCase = true) })
+
+        fun shouldRemoveGroup(removeRequested: Boolean, bridgeGroup: Boolean): Boolean =
+            removeRequested && bridgeGroup
     }
 }
 
