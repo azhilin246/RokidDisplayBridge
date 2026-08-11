@@ -2,7 +2,16 @@
 
 All notable project changes are documented here.
 
-## [Unreleased] - 0.3.0
+## [0.3.1] - 2026-08-11
+
+Wired connection selection hotfix.
+
+### Fixed
+
+- Prevented a stale wireless transport snapshot from switching the Connection control back to Wireless after Wired was selected.
+- Wired Connect now stops Wi-Fi Direct and wireless recovery, clears stale wireless state, and starts an explicit USB/AOA attempt without duplicating the immediate USB scan.
+
+## [0.3.0] - 2026-08-11
 
 ### Added
 

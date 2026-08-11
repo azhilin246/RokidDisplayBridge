@@ -274,6 +274,41 @@ class CompanionUnitTest {
         assertEquals(1, disconnects)
     }
 
+    @Test fun `stale wireless transport does not override manual wired selection while disconnected`() {
+        val controller = Robolectric.buildActivity(Activity::class.java)
+        controller.get().setTheme(R.style.AppTheme)
+        val activity = controller.setup().get()
+        var wiredConnects = 0
+        var wirelessConnects = 0
+        val dashboard = CompanionDashboard(
+            activity,
+            DisplayLayoutStore(activity),
+            CompanionDashboard.Actions(
+                connect = { wiredConnects++ },
+                externalDisplay = {},
+                screenMirror = {},
+                stop = {},
+                displayLayout = {},
+                connectWireless = { wirelessConnects++ },
+            ),
+        )
+        val staleWirelessSnapshot = BridgeSnapshot(
+            connection = ConnectionState.DISCONNECTED,
+            transport = "Wi-Fi Direct/TCP",
+            wirelessPaired = true,
+        )
+
+        dashboard.render(staleWirelessSnapshot)
+        dashboard.root.findViewById<MaterialButton>(R.id.connection_wireless_action).performClick()
+        dashboard.root.findViewById<MaterialButton>(R.id.connection_wired_action).performClick()
+        dashboard.render(staleWirelessSnapshot)
+        dashboard.root.findViewById<MaterialButton>(R.id.connection_action).performClick()
+
+        assertTrue(dashboard.root.findViewById<MaterialButton>(R.id.connection_wired_action).isChecked)
+        assertEquals(1, wiredConnects)
+        assertEquals(0, wirelessConnects)
+    }
+
     @Test fun `dashboard applies system bars around toolbar and page content`() {
         val controller = Robolectric.buildActivity(Activity::class.java)
         controller.get().setTheme(R.style.AppTheme)

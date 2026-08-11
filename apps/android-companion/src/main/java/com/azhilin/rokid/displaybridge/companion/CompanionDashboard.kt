@@ -154,8 +154,10 @@ internal class CompanionDashboard(
         val displayedMode = value.mode.takeUnless { it == BridgeMode.IDLE } ?: preferredOutputMode.bridgeMode
         styleModeButton(externalButton, displayedMode == BridgeMode.EXTERNAL_DISPLAY)
         styleModeButton(mirrorButton, displayedMode == BridgeMode.SCREEN_MIRROR)
-        if (value.transport.startsWith("Wi-Fi")) selectConnectionMode(ConnectionMode.WIRELESS)
-        else if (value.transport.startsWith("USB")) selectConnectionMode(ConnectionMode.WIRED)
+        if (value.connection in ACTIVE_CONNECTION_STATES) {
+            if (value.transport.startsWith("Wi-Fi")) selectConnectionMode(ConnectionMode.WIRELESS)
+            else if (value.transport.startsWith("USB")) selectConnectionMode(ConnectionMode.WIRED)
+        }
         updateConnectionControls(value)
 
         errorCard.visibility = if (value.error == null) View.GONE else View.VISIBLE
@@ -377,6 +379,15 @@ internal class CompanionDashboard(
     private fun dp(value: Int) = (value * activity.resources.displayMetrics.density).toInt()
 
     private enum class ConnectionMode { WIRED, WIRELESS }
+
+    private companion object {
+        val ACTIVE_CONNECTION_STATES = setOf(
+            ConnectionState.USB_PERMISSION,
+            ConnectionState.SWITCHING_TO_AOA,
+            ConnectionState.HANDSHAKING,
+            ConnectionState.READY,
+        )
+    }
 
 }
 

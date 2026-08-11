@@ -10,8 +10,8 @@ android {
         applicationId = "com.azhilin.rokid.displaybridge.glasses"
         minSdk = 28
         targetSdk = 28
-        versionCode = 6
-        versionName = "0.3.0"
+        versionCode = 7
+        versionName = "0.3.1"
     }
 
     compileOptions {

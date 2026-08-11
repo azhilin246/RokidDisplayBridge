@@ -119,10 +119,10 @@ class AndroidAoaHost(private val context: Context, private val listener: Listene
         active?.close()
     }
 
-    fun setAutoConnectEnabled(enabled: Boolean) {
+    fun setAutoConnectEnabled(enabled: Boolean, connectImmediately: Boolean = true) {
         autoConnectEnabled = enabled
         registerReceiver()
-        if (enabled) connectAttachedDevice()
+        if (enabled && connectImmediately) connectAttachedDevice()
     }
 
     val hasActiveConnectionAttempt: Boolean

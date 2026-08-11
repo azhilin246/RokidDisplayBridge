@@ -202,8 +202,7 @@ class BridgeService : Service(), AndroidAoaHost.Listener, PhoneWirelessHost.List
             when (intent?.action) {
                 ACTION_COMPANION_VISIBILITY -> onCompanionVisibilityChanged(BridgeRuntime.isCompanionVisible())
                 ACTION_CONNECT -> {
-                    cancelWirelessRecovery()
-                    if (connection == null && transition.mode != BridgeMode.IDLE) transition.stop()
+                    prepareWiredSelection()
                     updateAutomaticOutputPreference()
                     aoaHost.connect()
                 }
@@ -218,7 +217,9 @@ class BridgeService : Service(), AndroidAoaHost.Listener, PhoneWirelessHost.List
                     BridgeRuntime.update { it.copy(
                         connection = ConnectionState.DISCONNECTED,
                         connectionDetail = "Disconnected by user",
+                        transport = "none",
                         handshake = "disconnected",
+                        wirelessStage = "idle",
                         diagnostic = "AOA connection closed by user",
                         error = null,
                     ) }
@@ -483,6 +484,26 @@ class BridgeService : Service(), AndroidAoaHost.Listener, PhoneWirelessHost.List
             connectionDetail = "Starting wireless connection",
             transport = "Wi-Fi Direct/TCP",
             handshake = "not started",
+            error = null,
+        ) }
+    }
+
+    private fun prepareWiredSelection() {
+        cancelWirelessRecovery()
+        automaticExternalDisplay.cancel()
+        if (transition.mode != BridgeMode.IDLE) transition.stop()
+        val previous = connection
+        connection = null
+        handshake.reset()
+        previous?.close()
+        wirelessHost.stop()
+        aoaHost.setAutoConnectEnabled(companionVisible, connectImmediately = false)
+        BridgeRuntime.update { it.copy(
+            connection = ConnectionState.DISCONNECTED,
+            connectionDetail = "Starting wired connection",
+            transport = "USB/AOA",
+            handshake = "not started",
+            wirelessStage = "idle",
             error = null,
         ) }
     }
